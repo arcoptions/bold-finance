@@ -19,15 +19,30 @@ def get_worksheet(sheet_name, tab_name):
 
 def fetch_table(tab_name):
     worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-    data = worksheet.get_all_records()
-    if data:
-        return pd.DataFrame(data)
+    try:
+        data = worksheet.get_all_records()
+        if data:
+            return pd.DataFrame(data)
+    except Exception:
+        # Failsafe if headers are missing or malformed
+        pass
     return pd.DataFrame()
 
 def push_to_table(df, tab_name):
     worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
     existing_data = worksheet.get_all_values()
-    if not existing_data:
+    
+    # Check if the sheet is functionally empty (only contains blank cells)
+    is_empty = True
+    if existing_data:
+        for row in existing_data:
+            if any(str(cell).strip() for cell in row):
+                is_empty = False
+                break
+                
+    if is_empty:
+        # Wipe hidden formatting and blank rows so it starts cleanly at A1
+        worksheet.clear()
         worksheet.append_row(list(df.columns))
     
     data_to_upload = df.fillna("").astype(str).values.tolist()
@@ -38,10 +53,10 @@ def update_expense_status(expense_ids, bank_reference):
     worksheet = get_worksheet("Stoic_Social_ERP", "Expense_Log")
     records = worksheet.get_all_records()
     
-    # Identify rows to update (adding 2 to account for 0-index and header row)
     for idx, row in enumerate(records):
         if str(row.get('Expense_ID')) in expense_ids:
+            # idx + 2 accounts for 0-indexing and the header row
             row_num = idx + 2 
-            worksheet.update_cell(row_num, 6, "Settled") # Assuming Status is col 6
-            worksheet.update_cell(row_num, 7, bank_reference) # Assuming Bank_Ref is col 7
+            worksheet.update_cell(row_num, 7, "Settled")       # Column G: Status
+            worksheet.update_cell(row_num, 8, bank_reference)  # Column H: Bank_Reference
     return True
