@@ -1,23 +1,16 @@
 import streamlit as st
+from core.ui import inject_custom_css, render_sidebar_logo
 
-st.set_page_config(page_title="Stoic Financial ERP", layout="wide")
+st.set_page_config(page_title="Financial ERP", layout="wide")
+inject_custom_css()
+render_sidebar_logo()
 
-# This fulfills Requirement 1: Logo placement
-# Replace "logo.png" with the actual path to your logo asset in the repository
-try:
-    st.sidebar.image("logo.png", use_container_width=True)
-except Exception:
-    st.sidebar.markdown("### Stoic Social")
-
-st.sidebar.title("Navigation")
-st.sidebar.markdown("Select a module above.")
-
-st.title("Stoic Financial ERP")
+st.title("Financial Operating System")
+st.markdown("---")
 st.markdown("""
-Welcome to the Financial Management Tool.
+Select a module from the sidebar to begin:
 
-**System Modules:**
-* **1. Reconciliation:** Upload monthly statements, review uncategorized items, and merge with the master ledger.
-* **2. Dashboard:** Audit historical data, filter by month, and view total deposits/withdrawals.
-* **3. Expense Log:** Proactively record context for upcoming expenses (Replacing WhatsApp logging).
+* **Dashboard:** View interactive Plotly charts, P&L, and cash flow.
+* **Reconciliation:** Upload statements and smart-match transactions.
+* **Expense Log:** Proactively record expenses and link them to bank reimbursements.
 """)
