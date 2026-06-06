@@ -1,33 +1,63 @@
 import pandas as pd
-import re
 
-def process_bank_statement(uploaded_file):
+def clean_bank_statement(uploaded_file):
     df = pd.read_excel(uploaded_file, sheet_name='Account Statement')
+    
+    # 1. Drop junk headers where essential transaction data is missing
     df = df.dropna(subset=['Description'])
     
-    # Ensure mandatory audit columns exist for manual review later
-    required_columns = ['Entity', 'Person', 'Remarks', 'Splitwise match']
-    for col in required_columns:
+    # 2. Drop rows where both deposits and withdrawals are NaN/Empty
+    df = df.dropna(subset=['Withdrawals', 'Deposits'], how='all')
+    
+    # Ensure required columns
+    for col in ['Entity', 'Person', 'Remarks', 'Splitwise match']:
         if col not in df.columns:
             df[col] = None
             
+    # Cast reference number to string for deduplication
+    df['Cheque No/Reference No'] = df['Cheque No/Reference No'].astype(str).str.strip()
     return df
 
-def apply_mapping_rules(df, rules):
-    rules_df = pd.DataFrame(rules)
+def apply_smart_matching(new_df, historical_df):
+    new_df['Match_Confidence'] = 'Needs Review'
     
-    for idx, row in df.iterrows():
-        desc = str(row.get('Description', '')).upper()
-        
-        if pd.notna(row.get('Entity')) and str(row.get('Entity')).strip() != '':
-            continue
+    # Fallback default keywords
+    default_rules = {
+        "RAZORPAY": ("Bold and Italic", "Customer", "Razorpay deposits"),
+        "TRIPURA BIO": ("Socialight", "Tripura Bio", "Client payment"),
+        "VUESOL": ("Socialight", "Vuesol", "Client payment"),
+        "FACEBOOK": ("Bold and Italic", "Vendor", "FB Ads")
+    }
 
-        for _, rule in rules_df.iterrows():
-            if pd.notna(rule['keyword']) and re.search(rule['keyword'], desc):
-                df.at[idx, 'Entity'] = rule['entity']
-                df.at[idx, 'Person'] = rule['person']
-                df.at[idx, 'Remarks'] = rule['remarks']
-                df.at[idx, 'Splitwise match'] = rule['match']
-                break 
+    # Build historical dictionary from past master ledger for exact matches
+    historical_dict = {}
+    if not historical_df.empty:
+        valid_history = historical_df.dropna(subset=['Entity', 'Description'])
+        for _, row in valid_history.iterrows():
+            historical_dict[str(row['Description']).upper().strip()] = (
+                row['Entity'], row['Person'], row['Remarks']
+            )
+
+    for idx, row in new_df.iterrows():
+        desc = str(row['Description']).upper().strip()
+        
+        # 1. Check Exact Historical Match
+        if desc in historical_dict:
+            new_df.at[idx, 'Entity'] = historical_dict[desc][0]
+            new_df.at[idx, 'Person'] = historical_dict[desc][1]
+            new_df.at[idx, 'Remarks'] = historical_dict[desc][2]
+            new_df.at[idx, 'Match_Confidence'] = 'Auto-Reconciled'
+            continue
+            
+        # 2. Check Substring Default Rules
+        matched = False
+        for key, value in default_rules.items():
+            if key in desc:
+                new_df.at[idx, 'Entity'] = value[0]
+                new_df.at[idx, 'Person'] = value[1]
+                new_df.at[idx, 'Remarks'] = value[2]
+                new_df.at[idx, 'Match_Confidence'] = 'Auto-Reconciled'
+                matched = True
+                break
                 
-    return df
+    return new_df
