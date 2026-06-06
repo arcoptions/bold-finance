@@ -1,47 +1,57 @@
 import streamlit as st
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+from core.database import fetch_from_ledger
 
-@st.cache_resource
-def get_sheets_client():
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scopes)
-    return gspread.authorize(creds)
+st.set_page_config(page_title="Dashboard", layout="wide")
+st.title("Financial Dashboard")
 
-def get_worksheet(sheet_name, tab_name):
-    client = get_sheets_client()
-    sheet = client.open(sheet_name)
-    try:
-        return sheet.worksheet(tab_name)
-    except gspread.exceptions.WorksheetNotFound:
-        return sheet.add_worksheet(title=tab_name, rows="1000", cols="20")
+with st.spinner("Fetching live data from Master Ledger..."):
+    df = fetch_from_ledger()
 
-def fetch_table(tab_name):
-    worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-    data = worksheet.get_all_records()
-    if data:
-        return pd.DataFrame(data)
-    return pd.DataFrame()
-
-def push_to_table(df, tab_name):
-    worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-    existing_data = worksheet.get_all_values()
-    if not existing_data:
-        worksheet.append_row(list(df.columns))
+if df.empty:
+    st.info("The Master Ledger is currently empty. Please reconcile a bank statement first.")
+else:
+    # --- FILTERS ---
+    st.markdown("### Filters")
+    col1, col2 = st.columns(2)
     
-    data_to_upload = df.fillna("").astype(str).values.tolist()
-    worksheet.append_rows(data_to_upload)
-    return True
-
-def update_expense_status(expense_ids, bank_reference):
-    worksheet = get_worksheet("Stoic_Social_ERP", "Expense_Log")
-    records = worksheet.get_all_records()
+    with col1:
+        entities = ["All"] + list(df['Entity'].dropna().unique())
+        selected_entity = st.selectbox("Filter by Entity", entities)
     
-    # Identify rows to update (adding 2 to account for 0-index and header row)
-    for idx, row in enumerate(records):
-        if str(row.get('Expense_ID')) in expense_ids:
-            row_num = idx + 2 
-            worksheet.update_cell(row_num, 6, "Settled") # Assuming Status is col 6
-            worksheet.update_cell(row_num, 7, bank_reference) # Assuming Bank_Ref is col 7
-    return True
+    with col2:
+        # Extract unique months for filtering (Format: YYYY-MM)
+        df['Month'] = df['Transaction Date'].dt.to_period('M').astype(str)
+        months = ["All Time"] + list(df['Month'].dropna().unique())
+        selected_month = st.selectbox("Filter by Month", months)
+
+    # Apply Filters
+    filtered_df = df.copy()
+    if selected_entity != "All":
+        filtered_df = filtered_df[filtered_df['Entity'] == selected_entity]
+    if selected_month != "All Time":
+        filtered_df = filtered_df[filtered_df['Month'] == selected_month]
+
+    # --- KPI METRICS ---
+    total_deposits = filtered_df['Deposits'].sum()
+    total_withdrawals = filtered_df['Withdrawals'].sum()
+    net_cashflow = total_deposits - total_withdrawals
+
+    st.markdown("---")
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric("Total Deposits", f"₹ {total_deposits:,.2f}")
+    kpi2.metric("Total Withdrawals", f"₹ {total_withdrawals:,.2f}")
+    kpi3.metric("Net Cash Flow", f"₹ {net_cashflow:,.2f}")
+
+    # --- CHARTS ---
+    st.markdown("---")
+    st.subheader("Cash Flow Overview")
+    
+    # Group by month for charting
+    if not filtered_df.empty:
+        monthly_summary = filtered_df.groupby('Month')[['Deposits', 'Withdrawals']].sum().reset_index()
+        st.bar_chart(data=monthly_summary, x='Month', y=['Deposits', 'Withdrawals'], use_container_width=True)
+    
+    # --- RAW DATA VIEW ---
+    with st.expander("View Filtered Ledger Data"):
+        st.dataframe(filtered_df.sort_values(by="Transaction Date", ascending=False), use_container_width=True)
