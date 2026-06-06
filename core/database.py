@@ -30,21 +30,15 @@ def fetch_table(tab_name):
 
 def push_to_table(df, tab_name):
     worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-    existing_data = worksheet.get_all_values()
     
-    # Check if the sheet is functionally empty (only contains blank cells)
-    is_empty = True
-    if existing_data:
-        for row in existing_data:
-            if any(str(cell).strip() for cell in row):
-                is_empty = False
-                break
-                
-    if is_empty:
-        # Wipe hidden formatting and blank rows so it starts cleanly at A1
-        worksheet.clear()
-        worksheet.append_row(list(df.columns))
+    # 1. Get the first row to check if headers exist
+    first_row = worksheet.row_values(1)
     
+    # 2. If the first row is empty, force-write the headers
+    if not first_row or all(cell == "" for cell in first_row):
+        worksheet.update('A1', [list(df.columns)])
+    
+    # 3. Append the new data
     data_to_upload = df.fillna("").astype(str).values.tolist()
     worksheet.append_rows(data_to_upload)
     return True
