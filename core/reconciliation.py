@@ -2,44 +2,67 @@ import pandas as pd
 import numpy as np
 
 def clean_bank_statement(uploaded_file):
-    # 1. Read raw without headers to dynamically find where the real data starts
-    df_raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
-    
+    # 1. Safely read either CSV or Excel
+    try:
+        df_raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+    except Exception:
+        uploaded_file.seek(0)
+        df_raw = pd.read_csv(uploaded_file, header=None)
+        
+    # 2. Dynamically find the real header row (Bypass bank logos/address)
     header_idx = 0
-    # Search for the row that actually contains the word 'Description' and 'Date'
     for i, row in df_raw.iterrows():
         row_str = " ".join(str(x).lower() for x in row.values)
-        if 'description' in row_str and 'date' in row_str:
+        if ('description' in row_str or 'particulars' in row_str) and ('date' in row_str or 'txn' in row_str):
             header_idx = i
             break
 
-    # 2. Rebuild the DataFrame with the correct headers
+    # Rebuild DataFrame
     df = pd.DataFrame(df_raw.values[header_idx+1:], columns=df_raw.iloc[header_idx])
     df.columns = df.columns.astype(str).str.strip()
     
-    # 3. Drop all empty or "Unnamed" garbage columns
+    # Drop completely unnamed/empty garbage columns
     df = df.loc[:, ~df.columns.str.contains('^nan|^Unnamed', case=False, na=False)]
+
+    # 3. DYNAMIC COLUMN MAPPING (This prevents KeyErrors and missing data)
+    col_map = {}
+    for col in df.columns:
+        c_lower = col.lower()
+        if 'date' in c_lower and 'value' not in c_lower:
+            col_map[col] = 'Transaction Date'
+        elif 'desc' in c_lower or 'narration' in c_lower or 'particulars' in c_lower:
+            col_map[col] = 'Description'
+        elif 'withdraw' in c_lower or 'debit' in c_lower:
+            col_map[col] = 'Withdrawals'
+        elif 'deposit' in c_lower or 'credit' in c_lower:
+            col_map[col] = 'Deposits'
+        elif 'ref' in c_lower or 'cheq' in c_lower:
+            col_map[col] = 'Cheque No/Reference No'
+
+    df = df.rename(columns=col_map)
     
+    # Failsafe check
     if 'Description' not in df.columns:
-        return pd.DataFrame() # Safety fallback
+        return pd.DataFrame()
 
     df = df.dropna(subset=['Description'])
     
-    # 4. CRITICAL: Remove all Bank Footers and Disclaimers
-    # Genuine transactions must have a numeric value > 0 in either Deposits or Withdrawals
-    # We force them to floats. Text disclaimers will become NaN/0 and be dropped.
+    # 4. STRICT FINANCIAL FILTERING (Removes Footers/Disclaimers)
+    # Strip commas and ₹ symbols, force to pure numbers
     df['Withdrawals'] = pd.to_numeric(df.get('Withdrawals', pd.Series(dtype=float)).astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
     df['Deposits'] = pd.to_numeric(df.get('Deposits', pd.Series(dtype=float)).astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
     
+    # Only keep genuine monetary transactions
     df = df[(df['Withdrawals'] > 0) | (df['Deposits'] > 0)]
     
     if 'Cheque No/Reference No' in df.columns:
         df['Cheque No/Reference No'] = df['Cheque No/Reference No'].astype(str).str.strip()
+    else:
+        df['Cheque No/Reference No'] = ""
 
-    # Ensure mapping columns exist
+    # Add required application columns
     for col in ['Entity', 'Person', 'Remarks']:
-        if col not in df.columns:
-            df[col] = None
+        df[col] = None
             
     return df.reset_index(drop=True)
 
@@ -49,7 +72,6 @@ def apply_smart_matching(new_df, historical_df):
     # Build historical dictionary from the Master Ledger
     historical_dict = {}
     if not historical_df.empty and 'Description' in historical_df.columns:
-        # We drop empty entities and keep the MOST RECENT mapping for a description
         hist_clean = historical_df.dropna(subset=['Description', 'Entity'])
         hist_clean = hist_clean[hist_clean['Entity'].astype(str).str.strip() != '']
         hist_clean = hist_clean.drop_duplicates(subset=['Description'], keep='last')
@@ -65,18 +87,11 @@ def apply_smart_matching(new_df, historical_df):
     for idx, row in new_df.iterrows():
         desc = str(row['Description']).strip().upper()
         
-        # Exact 100% Historical Match
         if desc in historical_dict:
             new_df.at[idx, 'Entity'] = historical_dict[desc]['Entity']
             new_df.at[idx, 'Person'] = historical_dict[desc]['Person']
             new_df.at[idx, 'Remarks'] = historical_dict[desc]['Remarks']
             new_df.at[idx, 'Match_Confidence'] = 'Auto-Reconciled'
             continue
-            
-        # Hardcoded fallback rules (Optional, but helps catch basics if history is empty)
-        if 'RAZORPAY' in desc:
-            new_df.at[idx, 'Entity'] = 'Bold and Italic'
-            new_df.at[idx, 'Remarks'] = 'Razorpay deposits'
-            new_df.at[idx, 'Match_Confidence'] = 'Auto-Reconciled'
             
     return new_df
