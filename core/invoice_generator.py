@@ -8,7 +8,7 @@ from reportlab.lib.units import inch
 # Import our new constants
 from core.constants import (
     COMPANY_NAME, COMPANY_CO, COMPANY_ADDRESS, 
-    COMPANY_GSTIN, COMPANY_PAN, COMPANY_STATE,
+    COMPANY_GST, COMPANY_PAN, COMPANY_STATE,
     BANK_NAME, BANK_ACCOUNT_NAME, BANK_ACCOUNT_NO, BANK_IFSC
 )
 
