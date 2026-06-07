@@ -31,24 +31,30 @@ def render_invoice_view():
         discount = col_d1.number_input("Discount (₹)", min_value=0.0, value=0.0)
         deduction = col_d2.number_input("Other Deductions (₹)", min_value=0.0, value=0.0)
 
-        # --- PREVIEW CALCULATION ---
-        # Force numeric conversion for preview
+       # --- PREVIEW CALCULATION ---
+        # Force numeric conversion
         preview_df = edited_items.copy()
         preview_df['Qty'] = pd.to_numeric(preview_df['Qty'], errors='coerce').fillna(0)
         preview_df['Rate'] = pd.to_numeric(preview_df['Rate'], errors='coerce').fillna(0)
+        
+        # Calculate Subtotal
         subtotal = (preview_df['Qty'] * preview_df['Rate']).sum()
         
-        # Calculate Tax
-        is_telangana = place_of_supply.strip().lower() == "telangana"
-        tax_amount = subtotal * 0.18
-        grand_total = subtotal + tax_amount - discount - deduction
-
+        # Calculate Net Taxable Amount
+        net_taxable = subtotal - discount - deduction
+        # Ensure it doesn't go below zero
+        net_taxable = max(0.0, net_taxable)
+        
+        # Calculate Tax on the Net Amount
+        tax_amount = net_taxable * 0.18
+        grand_total = net_taxable + tax_amount
+        
         st.markdown("---")
         st.markdown("#### 📊 Preview Totals")
         p1, p2, p3, p4 = st.columns(4)
         p1.metric("Subtotal", f"₹{subtotal:,.2f}")
-        p2.metric("GST (18%)", f"₹{tax_amount:,.2f}")
-        p3.metric("Adjustments", f"-₹{(discount+deduction):,.2f}")
+        p2.metric("Adjustments", f"-₹{(discount+deduction):,.2f}")
+        p3.metric("GST (18% on Net)", f"₹{tax_amount:,.2f}")
         p4.metric("Grand Total", f"₹{grand_total:,.2f}")
 
         submitted = st.form_submit_button("Generate PDF Invoice", type="primary")
