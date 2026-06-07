@@ -5,10 +5,12 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
-# Default Bold & Italic Constants
-COMPANY_NAME = "BOLD AND ITALIC"
-COMPANY_ADDRESS = "C/O STOIC SOCIAL LLP 1-90/B/C/13/1, FLAT 103,\nVITTAL RAO NAGAR, MADHAPUR, HYDERABAD,\nTELANGANA - 500081"
-COMPANY_GST = "36AAZFBXXXXX1Z1" # Update this with your actual GST
+# Import our new constants
+from core.constants import (
+    COMPANY_NAME, COMPANY_CO, COMPANY_ADDRESS, 
+    COMPANY_GSTIN, COMPANY_PAN, COMPANY_STATE,
+    BANK_NAME, BANK_ACCOUNT_NAME, BANK_ACCOUNT_NO, BANK_IFSC
+)
 
 def generate_invoice_pdf(invoice_data):
     buffer = io.BytesIO()
