@@ -29,73 +29,44 @@ def render_dashboard_view():
                     return col
         return None
 
-    dep_col = get_col(['Deposits', 'Deposit', 'Credit'])
-    wth_col = get_col(['Withdrawals', 'Withdrawal', 'Debit'])
-    date_col = get_col(['Transaction Date', 'Date', 'Value Date'])
-    bal_col = get_col(['Running Balance', 'Balance', 'Running_Balance'])
-
-    if not dep_col or not wth_col:
-        st.error("Could not locate financial columns. Please check your Google Sheet headers.")
-        st.write("Found columns:", list(df.columns))
-        return
+# Strict mappings based on common Google Sheet variations
+    dep_col = get_col(['Deposits', 'Credit'])
+    wth_col = get_col(['Withdrawals', 'Debit'])
+    date_col = get_col(['Transaction Date', 'Date'])
+    bal_col = get_col(['Running Balance', 'Balance'])
+    ent_col = get_col(['Entity'])
+    rmk_col = get_col(['Remarks'])
+    per_col = get_col(['Person'])
 
     # --- DATA CLEANING ---
+    # Only process columns if they were successfully found
     for col in [dep_col, wth_col, bal_col]:
         if col:
-            # Aggressively extract only numbers to prevent string calculation crashes
             df[col] = df[col].astype(str).str.replace(r'[^\d\.-]', '', regex=True)
-            df[col] = df[col].replace('', '0')
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-
-    # Safely parse dates, capturing unreadable dates into 'Unknown Date' instead of dropping them
+    
     if date_col:
-        df['Parsed_Date'] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce')
+        df['Parsed_Date'] = pd.to_datetime(df[date_col], errors='coerce')
+        df = df.dropna(subset=['Parsed_Date'])
         df['Month'] = df['Parsed_Date'].dt.to_period('M').astype(str)
-        df['Month'] = df['Month'].replace('NaT', 'Unknown Date')
-    else:
-        df['Month'] = 'Unknown Date'
-
-    rmk_col = get_col(['Remarks', 'Category'])
-    per_col = get_col(['Person', 'Client', 'Vendor'])
-    ent_col = get_col(['Entity', 'Company'])
-
-    if rmk_col: df[rmk_col] = df[rmk_col].fillna('Uncategorized').replace('', 'Uncategorized')
-    if per_col: df[per_col] = df[per_col].fillna('Unknown').replace('', 'Unknown')
-
-    # --- TOP FILTERS ---
-    col1, col2 = st.columns(2)
-    with col1:
-        if ent_col:
-            entities = ["All"] + list(df[ent_col].dropna().unique())
-        else:
-            entities = ["All"]
-        entity_filter = st.selectbox("Entity View", entities)
-        
-    with col2:
-        months = sorted([m for m in df['Month'].unique() if m != 'Unknown Date'], reverse=True)
-        if 'Unknown Date' in df['Month'].values:
-            months.append('Unknown Date')
-        month_filter = st.selectbox("Period", ["All Time"] + months)
-
-    # Apply Filters
-    filtered_df = df.copy()
-    if entity_filter != "All" and ent_col:
-        filtered_df = filtered_df[filtered_df[ent_col] == entity_filter]
-    if month_filter != "All Time":
-        filtered_df = filtered_df[filtered_df['Month'] == month_filter]
-
-    # --- METRICS CALCULATION ---
-    tot_dep = float(filtered_df[dep_col].sum())
-    tot_wth = float(filtered_df[wth_col].sum())
+    
+    # --- METRICS ---
+    # Only calculate if columns exist
+    tot_dep = float(df[dep_col].sum()) if dep_col else 0.0
+    tot_wth = float(df[wth_col].sum()) if wth_col else 0.0
     net_cf = tot_dep - tot_wth
 
-    closing_bal = 0.0
-    if bal_col and not filtered_df.empty:
-        if 'Parsed_Date' in filtered_df.columns:
-            sorted_df = filtered_df.sort_values(by=['Parsed_Date'])
-            closing_bal = float(sorted_df.iloc[-1][bal_col])
-        else:
-            closing_bal = float(filtered_df.iloc[-1][bal_col])
+    # Display safely
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Total Revenue", f"₹ {tot_dep:,.0f}")
+    m2.metric("Total Expenses", f"₹ {tot_wth:,.0f}")
+    m3.metric("Net Cash Flow", f"₹ {net_cf:,.0f}")
+    
+    # Closing Balance
+    if bal_col:
+        m4.metric("Closing Balance", f"₹ {float(df.iloc[-1][bal_col]):,.0f}")
+    
+    st.markdown("---")
 
     # --- RENDER METRICS ---
     m1, m2, m3, m4 = st.columns(4)
