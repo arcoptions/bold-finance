@@ -54,7 +54,7 @@ def render_recon_view():
         processed_df['Deposits'] = pd.to_numeric(processed_df['Deposits'], errors='coerce').fillna(0)
 
         # 4. UI Display 
-        tab1, tab2, tab3 = st.tabs(["Needs Review ⚠️", "Auto-Reconciled ✅", "All Uploaded Data 📋"])
+        tab1, tab2, tab3 = st.tabs(["Needs Review", "Auto-Reconciled", "All Uploaded Data"])
         mask_review = processed_df['Match_Confidence'] == 'Needs Review'
         
         edit_cols = ['Transaction Date', 'Description', 'Withdrawals', 'Deposits', 'Cheque No/Reference No', 'Entity', 'Person', 'Remarks']
