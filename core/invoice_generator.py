@@ -7,7 +7,7 @@ from reportlab.lib.units import inch
 from num2words import num2words
 from core.constants import (
     COMPANY_NAME, COMPANY_CO, COMPANY_ADDRESS, 
-    COMPANY_GSTIN, COMPANY_PAN, BANK_NAME, 
+    COMPANY_GST, COMPANY_PAN, BANK_NAME, 
     BANK_ACCOUNT_NAME, BANK_ACCOUNT_NO, BANK_IFSC
 )
 
@@ -33,7 +33,7 @@ def generate_invoice_pdf(invoice_data):
     elements.append(Paragraph(f"<b>{invoice_data['invoice_type'].upper()}</b>", title_style))
 
     # 3. Company & Invoice Details
-    full_company_text = f"<b>{COMPANY_NAME}</b><br/>{COMPANY_CO}<br/>{COMPANY_ADDRESS.replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {COMPANY_GSTIN}<br/><b>PAN:</b> {COMPANY_PAN}"
+    full_company_text = f"<b>{COMPANY_NAME}</b><br/>{COMPANY_CO}<br/>{COMPANY_ADDRESS.replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {COMPANY_GST}<br/><b>PAN:</b> {COMPANY_PAN}"
     
     top_data = [
         [Paragraph(full_company_text, styles['Normal']),
