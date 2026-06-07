@@ -7,7 +7,7 @@ from reportlab.lib.units import inch
 from num2words import num2words
 from core.constants import (
     COMPANY_NAME, COMPANY_CO, COMPANY_ADDRESS, 
-    COMPANY_GST, COMPANY_PAN, BANK_NAME, 
+    COMPANY_GSTIN, COMPANY_PAN, BANK_NAME, 
     BANK_ACCOUNT_NAME, BANK_ACCOUNT_NO, BANK_IFSC
 )
 
@@ -20,24 +20,21 @@ def generate_invoice_pdf(invoice_data):
     styles = getSampleStyleSheet()
     elements = []
 
-    # 1. Logo (Fixed Aspect Ratio)
+    # 1. Logo Centered
     try:
-        # Use a fixed width and let the height adjust naturally or set a specific ratio
-        # To avoid compression, we don't set both width and height if not needed, 
-        # or we use preserveAspectRatio.
         logo = Image("logo.png", width=1.5*inch, height=0.75*inch)
-        logo.hAlign = 'LEFT' # Align to the left of the document
+        logo.hAlign = 'CENTER'
         elements.append(logo)
         elements.append(Spacer(1, 10))
     except:
-        pass
+        pass 
 
     # 2. Header
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], alignment=1, fontSize=16, spaceAfter=10)
     elements.append(Paragraph(f"<b>{invoice_data['invoice_type'].upper()}</b>", title_style))
 
-    # 3. Company Info
-    full_company_text = f"<b>{COMPANY_NAME}</b><br/>{COMPANY_CO}<br/>{COMPANY_ADDRESS.replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {COMPANY_GST}<br/><b>PAN:</b> {COMPANY_PAN}"
+    # 3. Company & Invoice Details
+    full_company_text = f"<b>{COMPANY_NAME}</b><br/>{COMPANY_CO}<br/>{COMPANY_ADDRESS.replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {COMPANY_GSTIN}<br/><b>PAN:</b> {COMPANY_PAN}"
     
     top_data = [
         [Paragraph(full_company_text, styles['Normal']),
@@ -45,19 +42,14 @@ def generate_invoice_pdf(invoice_data):
     ]
     
     top_table = Table(top_data, colWidths=[3.5 * inch, 3.5 * inch])
-    top_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                                  ('LEFTPADDING', (0, 0), (0, 0), 0),]))
+    top_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('ALIGN', (0,0), (-1,-1), 'LEFT')]))
     elements.append(top_table)
     elements.append(Spacer(1, 20))
 
-    # 4. Billed To Section (RESTORED)
-    #Using a 1-row, 1-col table forces it to respect the same margin as the top_table
+    # 4. Billed To
     billed_to_data = [[Paragraph(f"<b>Billed To:</b><br/>{invoice_data['client_name']}<br/>{invoice_data['client_address'].replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {invoice_data.get('client_gst', 'N/A')}", styles['Normal'])]]
     billed_to_table = Table(billed_to_data, colWidths=[7.0 * inch])
-    billed_to_table.setStyle(TableStyle([
-        ('ALIGN', (0, 0), (0, 0), 'LEFT'),
-        ('VALIGN', (0, 0), (0, 0), 'TOP'),
-    ]))
+    billed_to_table.setStyle(TableStyle([('ALIGN', (0, 0), (0, 0), 'LEFT')]))
     elements.append(billed_to_table)
     elements.append(Spacer(1, 20))
 
@@ -70,36 +62,37 @@ def generate_invoice_pdf(invoice_data):
         subtotal += amt
         table_data.append([str(idx+1), item['desc'], item['hsn'], str(item['qty']), f"{float(item['rate']):,.2f}", f"{amt:,.2f}"])
 
-    # --- MATH LOGIC ---
+    # MATH LOGIC
     discount = float(invoice_data.get('discount', 0))
     deduction = float(invoice_data.get('deduction', 0))
     net_taxable = round(max(0.0, subtotal - discount - deduction), 2)
     tax_amt = round(net_taxable * 0.18, 2)
     
-    # Rows
-    table_data.append(['', '', '', '', 'Subtotal', f"{subtotal:,.2f}"])
-    if discount > 0:
-        table_data.append(['', '', '', '', 'Discount', f"-{discount:,.2f}"])
-    if deduction > 0:
-        table_data.append(['', '', '', '', 'Other Deductions', f"-{deduction:,.2f}"])
-    table_data.append(['', '', '', '', 'Taxable Amount', f"{net_taxable:,.2f}"])
+    # Helper for alignment
+    def add_summary_row(label, value):
+        return ['', label, '', '', '', value]
+
+    table_data.append(add_summary_row('Subtotal', f"{subtotal:,.2f}"))
+    if discount > 0: table_data.append(add_summary_row('Discount', f"-{discount:,.2f}"))
+    if deduction > 0: table_data.append(add_summary_row('Other Deductions', f"-{deduction:,.2f}"))
+    table_data.append(add_summary_row('Taxable Amount', f"{net_taxable:,.2f}"))
 
     is_telangana = invoice_data['place_of_supply'].strip().lower() == "telangana"
     if is_telangana:
-        table_data.append(['', '', '', '', 'CGST (9%)', f"{round(net_taxable*0.09, 2):,.2f}"])
-        table_data.append(['', '', '', '', 'SGST (9%)', f"{round(net_taxable*0.09, 2):,.2f}"])
+        table_data.append(add_summary_row('CGST (9%)', f"{round(net_taxable*0.09, 2):,.2f}"))
+        table_data.append(add_summary_row('SGST (9%)', f"{round(net_taxable*0.09, 2):,.2f}"))
     else:
-        table_data.append(['', '', '', '', 'IGST (18%)', f"{tax_amt:,.2f}"])
+        table_data.append(add_summary_row('IGST (18%)', f"{tax_amt:,.2f}"))
 
     total = round(net_taxable + tax_amt, 2)
-    table_data.append(['', '', '', '', 'Grand Total', f"{total:,.2f}"])
+    table_data.append(add_summary_row('Grand Total', f"{total:,.2f}"))
 
     # Table Styling
     item_table = Table(table_data, colWidths=[0.5*inch, 2.5*inch, 0.8*inch, 0.5*inch, 1.0*inch, 1.0*inch])
     styles_list = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
-        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'),
         ('ALIGN', (1, 1), (1, -1), 'LEFT'),
+        ('ALIGN', (5, 0), (5, -1), 'RIGHT'),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')
     ]
@@ -108,20 +101,18 @@ def generate_invoice_pdf(invoice_data):
     elements.append(item_table)
     elements.append(Spacer(1, 20))
 
-    # 6. Footer (Amount in words + Declaration + Signature - RESTORED)
+    # 6. Footer
     elements.append(Paragraph(f"<b>Amount in Words:</b> {get_amount_in_words(total)}", styles['Normal']))
     elements.append(Spacer(1, 10))
     elements.append(Paragraph("<b>Declaration:</b><br/>Certified that the particulars given above are true and correct.", styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    # Bank and Signature Side-by-Side
     bank_and_sign_data = [
         [Paragraph(f"<b>Bank Details:</b><br/>Bank: {BANK_NAME}<br/>A/c Name: {BANK_ACCOUNT_NAME}<br/>A/c No: {BANK_ACCOUNT_NO}<br/>IFSC: {BANK_IFSC}", styles['Normal']),
          Paragraph(f"<b>For {COMPANY_NAME.upper()}</b><br/><br/><br/><br/>__________________________<br/>Authorized Signatory", styles['Normal'])]
     ]
-    
     footer_table = Table(bank_and_sign_data, colWidths=[3.5*inch, 3.5*inch])
-    footer_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    footer_table.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'LEFT'), ('VALIGN', (0,0), (-1,-1), 'TOP')]))
     elements.append(footer_table)
     
     doc.build(elements)
