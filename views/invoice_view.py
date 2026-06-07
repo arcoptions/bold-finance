@@ -6,13 +6,11 @@ from core.invoice_generator import generate_invoice_pdf
 def render_invoice_view():
     st.markdown("## 🧾 Generate Invoice")
     
-    # 1. Initialize session state variables safely
+    # 1. Initialize session state
     if 'pdf_data' not in st.session_state:
         st.session_state.pdf_data = None
-    if 'inv_no' not in st.session_state:
         st.session_state.inv_no = ""
 
-    # 2. Form for inputs
     with st.form("invoice_form"):
         col1, col2, col3 = st.columns(3)
         inv_type = col1.selectbox("Invoice Type", ["Proforma Invoice", "Tax Invoice"])
@@ -26,20 +24,39 @@ def render_invoice_view():
         client_address = st.text_area("Client Address")
 
         st.markdown("#### Line Items")
-        # Initialize with one empty row
         default_items = pd.DataFrame([{"Description": "", "HSN/SAC": "", "Qty": 0, "Rate": 0.0}])
         edited_items = st.data_editor(default_items, num_rows="dynamic", use_container_width=True)
+        
+        col_d1, col_d2 = st.columns(2)
+        discount = col_d1.number_input("Discount (₹)", min_value=0.0, value=0.0)
+        deduction = col_d2.number_input("Other Deductions (₹)", min_value=0.0, value=0.0)
+
+        # --- PREVIEW CALCULATION ---
+        # Force numeric conversion for preview
+        preview_df = edited_items.copy()
+        preview_df['Qty'] = pd.to_numeric(preview_df['Qty'], errors='coerce').fillna(0)
+        preview_df['Rate'] = pd.to_numeric(preview_df['Rate'], errors='coerce').fillna(0)
+        subtotal = (preview_df['Qty'] * preview_df['Rate']).sum()
+        
+        # Calculate Tax
+        is_telangana = place_of_supply.strip().lower() == "telangana"
+        tax_amount = subtotal * 0.18
+        grand_total = subtotal + tax_amount - discount - deduction
+
+        st.markdown("---")
+        st.markdown("#### 📊 Preview Totals")
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Subtotal", f"₹{subtotal:,.2f}")
+        p2.metric("GST (18%)", f"₹{tax_amount:,.2f}")
+        p3.metric("Adjustments", f"-₹{(discount+deduction):,.2f}")
+        p4.metric("Grand Total", f"₹{grand_total:,.2f}")
 
         submitted = st.form_submit_button("Generate PDF Invoice", type="primary")
 
         if submitted:
-            # 1. Clean and convert the dataframe before processing
-            edited_items['Qty'] = pd.to_numeric(edited_items['Qty'], errors='coerce').fillna(0)
-            edited_items['Rate'] = pd.to_numeric(edited_items['Rate'], errors='coerce').fillna(0.0)
-            # Prepare line items
             valid_items = []
             for _, row in edited_items.iterrows():
-                if str(row['Description']).strip() and row['Qty'] > 0:
+                if str(row['Description']).strip() and float(row['Qty']) > 0:
                     valid_items.append({
                         "desc": str(row['Description']),
                         "hsn": str(row['HSN/SAC']),
@@ -47,33 +64,20 @@ def render_invoice_view():
                         "rate": float(row['Rate'])
                     })
             
-            if valid_items:
+            if not valid_items:
+                st.error("Please add at least one valid item.")
+            else:
                 invoice_data = {
-                    "invoice_type": inv_type, 
-                    "invoice_no": inv_no, 
-                    "order_date": order_date.strftime("%d-%b-%Y"),
-                    "client_name": client_name, 
-                    "client_address": client_address, 
-                    "client_gst": client_gst,
-                    "place_of_supply": place_of_supply, 
-                    "items": valid_items
+                    "invoice_type": inv_type, "invoice_no": inv_no, "order_date": order_date.strftime("%d-%b-%Y"),
+                    "client_name": client_name, "client_address": client_address, "client_gst": client_gst,
+                    "place_of_supply": place_of_supply, "items": valid_items,
+                    "discount": discount, "deduction": deduction
                 }
-                
-                # Generate and store in Session State
                 pdf_buffer, _ = generate_invoice_pdf(invoice_data)
                 st.session_state.pdf_data = pdf_buffer
                 st.session_state.inv_no = inv_no
-            else:
-                st.error("Please add at least one valid item with quantity > 0.")
-                st.session_state.pdf_data = None 
 
-    # 3. DOWNLOAD BUTTON (Placed OUTSIDE the form to avoid StreamlitAPIException)
-    # This now reads from the session state, ensuring no UnboundLocalError occurs
+    # --- DOWNLOAD BUTTON (Outside Form) ---
     if st.session_state.pdf_data is not None:
-        st.success("PDF Generated! Click below to download.")
-        st.download_button(
-            label=f"⬇️ Download {st.session_state.inv_no}.pdf",
-            data=st.session_state.pdf_data,
-            file_name=f"{st.session_state.inv_no}.pdf",
-            mime="application/pdf"
-        )
+        st.download_button(f"⬇️ Download {st.session_state.inv_no}.pdf", st.session_state.pdf_data, 
+                           f"{st.session_state.inv_no}.pdf", "application/pdf")
