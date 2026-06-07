@@ -4,6 +4,8 @@ from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
+from num2words import num2words # You may need to run: pip install num2words
+
 
 # Import our new constants
 from core.constants import (
@@ -11,7 +13,9 @@ from core.constants import (
     COMPANY_GST, COMPANY_PAN, COMPANY_STATE,
     BANK_NAME, BANK_ACCOUNT_NAME, BANK_ACCOUNT_NO, BANK_IFSC
 )
-
+def get_amount_in_words(amount):
+    return num2words(int(amount), lang='en_IN').title() + " Only"
+    
 def generate_invoice_pdf(invoice_data):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
