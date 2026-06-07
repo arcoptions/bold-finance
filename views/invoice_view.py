@@ -33,6 +33,9 @@ def render_invoice_view():
         submitted = st.form_submit_button("Generate PDF Invoice", type="primary")
 
         if submitted:
+            # 1. Clean and convert the dataframe before processing
+            edited_items['Qty'] = pd.to_numeric(edited_items['Qty'], errors='coerce').fillna(0)
+            edited_items['Rate'] = pd.to_numeric(edited_items['Rate'], errors='coerce').fillna(0.0)
             # Prepare line items
             valid_items = []
             for _, row in edited_items.iterrows():
