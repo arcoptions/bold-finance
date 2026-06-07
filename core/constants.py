@@ -1,4 +1,5 @@
 EMPLOYEES = ["Abhiram", "Bubby", "STC", "Tarun", "Vicky"]
+
 DEFAULT_MAPPING_RULES = [
     {"keyword": "RAZORPAY.*SHIPROCKET", "entity": "Bold and Italic", "person": "Vendor", "remarks": "Shiprocket recharge", "match": "Ignore"},
     {"keyword": "RAZORPAY", "entity": "Bold and Italic", "person": "Customer", "remarks": "Razorpay deposits", "match": "Ignore"},
