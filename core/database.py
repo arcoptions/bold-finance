@@ -12,7 +12,7 @@ def get_sheets_client():
 
 @st.cache_data(ttl=300)
 def fetch_table(tab_name):
-    """Robust fetcher that cleans headers and handles formatting errors."""
+    """Brute-force fetch: Ensures every row is read and columns are unique."""
     for attempt in range(3):
         try:
             client = get_sheets_client()
@@ -22,14 +22,14 @@ def fetch_table(tab_name):
             
             if not data or len(data) < 2: return pd.DataFrame()
             
-            # 1. Find Header Row
+            # Find the true header row
             header_idx = 0
             for i, row in enumerate(data):
                 if len([c for c in row if str(c).strip()]) >= 3:
                     header_idx = i
                     break
             
-            # 2. Extract and Clean Headers
+            # Extract and force unique headers
             raw_headers = data[header_idx]
             clean_headers = []
             seen = {}
@@ -42,12 +42,15 @@ def fetch_table(tab_name):
                     seen[h] = 0
                     clean_headers.append(h)
             
-            # 3. Create DataFrame
             df = pd.DataFrame(data[header_idx+1:], columns=clean_headers)
+            
+            # Clean duplicate columns and empty rows
+            df = df.loc[:, ~df.columns.duplicated()]
             return df.replace("", pd.NA).dropna(how='all')
             
-        except Exception as e:
+        except Exception:
             time.sleep(2)
+            
     return pd.DataFrame()
 
 def push_to_table(df, tab_name):
@@ -60,24 +63,3 @@ def push_to_table(df, tab_name):
         return True
     except Exception:
         return False
-
-def update_expense_status(expense_ids, bank_reference):
-    worksheet = get_sheets_client().open("Stoic_Social_ERP").worksheet("Expense_Log")
-    data = worksheet.get_all_values()
-    headers = data[0]
-    
-    # Locate columns by name dynamically
-    id_idx = headers.index("Expense_ID")
-    status_idx = headers.index("Status") + 1
-    ref_idx = headers.index("Bank_Reference") + 1
-    
-    cells = []
-    for idx, row in enumerate(data):
-        if idx == 0: continue
-        if str(row[id_idx]) in expense_ids:
-            cells.append(gspread.Cell(idx + 1, status_idx, "Settled"))
-            cells.append(gspread.Cell(idx + 1, ref_idx, bank_reference))
-            
-    worksheet.update_cells(cells)
-    st.cache_data.clear()
-    return True
