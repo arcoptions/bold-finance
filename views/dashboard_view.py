@@ -75,20 +75,8 @@ def render_dashboard_view():
     st.markdown("---")
     
     # ROW 1: Waterfall & Trend
-    col_a, col_b = st.columns(2)
+    col_b = st.column()
     
-    with col_a:
-        st.subheader("Cash Flow Waterfall")
-        fig_waterfall = go.Figure(go.Waterfall(
-            orientation="v",
-            measure=["absolute", "relative", "relative", "total"],
-            x=["Opening", "Revenue", "Expenses", "Closing"],
-            y=[opening_bal, tot_dep, -tot_wth, closing_bal],
-            connector={"line": {"color": "rgb(63, 63, 63)"}}
-        ))
-        fig_waterfall.update_layout(margin=dict(t=20, b=20))
-        st.plotly_chart(fig_waterfall, use_container_width=True)
-
     with col_b:
         st.subheader("Monthly Revenue vs. Expenses")
         if not filtered_df.empty and 'Month' in filtered_df.columns:
