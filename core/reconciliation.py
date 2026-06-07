@@ -1,16 +1,39 @@
 import pandas as pd
 
 def clean_bank_statement(uploaded_file):
+    # 1. Define the exact columns your bank provides
+    expected_cols = [
+        'Transaction Date', 'Value Date', 'Cheque No/Reference No', 
+        'Description', 'Withdrawals', 'Deposits', 'Running Balance'
+    ]
+    
+    # 2. Read the file, ignoring all 'Unnamed' or extra columns
     df = pd.read_excel(uploaded_file, sheet_name='Account Statement')
     
-    df = df.dropna(subset=['Description'])
-    df = df.dropna(subset=['Withdrawals', 'Deposits'], how='all')
+    # Clean up column names to avoid trailing spaces (a common bank export bug)
+    df.columns = df.columns.str.strip()
     
+    # Keep only the columns we expect
+    df = df[[c for c in expected_cols if c in df.columns]]
+    
+    # 3. CRITICAL: Remove non-transaction rows (The bank footers/disclaimers)
+    # This keeps only rows where 'Description' is not null
+    df = df.dropna(subset=['Description'])
+    
+    # Remove rows where the description contains footer keywords
+    footer_keywords = ['Generated On', 'YES BANK', 'Disclaimer', 'Transaction codes']
+    for kw in footer_keywords:
+        df = df[~df['Description'].astype(str).str.contains(kw, na=False)]
+        
+    # 4. Standardize Reference Number (the fix for Cheque/Ref)
+    if 'Cheque No/Reference No' in df.columns:
+        df['Cheque No/Reference No'] = df['Cheque No/Reference No'].astype(str).str.strip()
+
+    # Ensure required reconciliation columns exist
     for col in ['Entity', 'Person', 'Remarks', 'Splitwise match']:
         if col not in df.columns:
             df[col] = None
             
-    df['Cheque No/Reference No'] = df['Cheque No/Reference No'].astype(str).str.strip()
     return df
 
 def apply_smart_matching(new_df, historical_df):
