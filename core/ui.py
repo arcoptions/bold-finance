@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 
 def inject_custom_css():
     st.markdown("""
@@ -30,7 +31,6 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 def render_sidebar_logo():
-    # Replace the URL/path with your actual corporate logo
     if os.path.exists("logo.png"):
         st.logo("logo.png", size="large")
 
