@@ -31,7 +31,7 @@ def render_invoice_view():
         discount = col_d1.number_input("Discount (₹)", min_value=0.0, value=0.0)
         deduction = col_d2.number_input("Other Deductions (₹)", min_value=0.0, value=0.0)
 
-       # --- PREVIEW CALCULATION ---
+        # --- PREVIEW CALCULATION ---
         # Force numeric conversion
         preview_df = edited_items.copy()
         preview_df['Qty'] = pd.to_numeric(preview_df['Qty'], errors='coerce').fillna(0)
