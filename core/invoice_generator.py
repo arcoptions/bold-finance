@@ -20,13 +20,17 @@ def generate_invoice_pdf(invoice_data):
     styles = getSampleStyleSheet()
     elements = []
 
-    # 1. Logo
+    # 1. Logo (Fixed Aspect Ratio)
     try:
+        # Use a fixed width and let the height adjust naturally or set a specific ratio
+        # To avoid compression, we don't set both width and height if not needed, 
+        # or we use preserveAspectRatio.
         logo = Image("logo.png", width=1.5*inch, height=0.75*inch)
+        logo.hAlign = 'LEFT' # Align to the left of the document
         elements.append(logo)
         elements.append(Spacer(1, 10))
     except:
-        pass 
+        pass
 
     # 2. Header
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], alignment=1, fontSize=16, spaceAfter=10)
@@ -41,13 +45,20 @@ def generate_invoice_pdf(invoice_data):
     ]
     
     top_table = Table(top_data, colWidths=[3.5 * inch, 3.5 * inch])
-    top_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    top_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                  ('LEFTPADDING', (0, 0), (0, 0), 0),]))
     elements.append(top_table)
     elements.append(Spacer(1, 20))
 
     # 4. Billed To Section (RESTORED)
-    elements.append(Paragraph("<b>Billed To:</b>", styles['Heading3']))
-    elements.append(Paragraph(f"{invoice_data['client_name']}<br/>{invoice_data['client_address'].replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {invoice_data.get('client_gst', 'N/A')}", styles['Normal']))
+    #Using a 1-row, 1-col table forces it to respect the same margin as the top_table
+    billed_to_data = [[Paragraph(f"<b>Billed To:</b><br/>{invoice_data['client_name']}<br/>{invoice_data['client_address'].replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {invoice_data.get('client_gst', 'N/A')}", styles['Normal'])]]
+    billed_to_table = Table(billed_to_data, colWidths=[7.0 * inch])
+    billed_to_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+        ('VALIGN', (0, 0), (0, 0), 'TOP'),
+    ]))
+    elements.append(billed_to_table)
     elements.append(Spacer(1, 20))
 
     # 5. Itemized Table
