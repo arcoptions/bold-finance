@@ -18,36 +18,57 @@ def get_worksheet(sheet_name, tab_name):
     except gspread.exceptions.WorksheetNotFound:
         return sheet.add_worksheet(title=tab_name, rows="1000", cols="20")
 
-# --- FIX 1: CACHING & EXPONENTIAL BACKOFF ---
-# Caches the data for 5 minutes. Streamlit will not ping Google again until this expires or is cleared.
 @st.cache_data(ttl=300)
 def fetch_table(tab_name):
-    # Retry logic: If Google drops the connection, wait and try again invisibly
     for attempt in range(3):
         try:
             worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-            data = worksheet.get_all_records()
-            if data:
-                return pd.DataFrame(data)
-            return pd.DataFrame()
+            # BRUTE FORCE METHOD: Get every cell in the sheet to bypass formatting errors
+            data = worksheet.get_all_values()
+            if not data:
+                return pd.DataFrame()
+            
+            # Find the true header row (the first row that actually has text in multiple columns)
+            header_idx = 0
+            for i, row in enumerate(data):
+                filled_cells = [cell for cell in row if str(cell).strip()]
+                if len(filled_cells) >= 3:
+                    header_idx = i
+                    break
+                    
+            raw_headers = data[header_idx]
+            
+            # Clean headers and forcefully rename duplicate columns (Pandas crashes if columns share a name)
+            seen = {}
+            clean_headers = []
+            for h in raw_headers:
+                h_clean = str(h).strip()
+                if not h_clean:
+                    h_clean = "Unnamed"
+                if h_clean in seen:
+                    seen[h_clean] += 1
+                    clean_headers.append(f"{h_clean}_{seen[h_clean]}")
+                else:
+                    seen[h_clean] = 0
+                    clean_headers.append(h_clean)
+                    
+            # Build the DataFrame safely
+            df = pd.DataFrame(data[header_idx+1:], columns=clean_headers)
+            
+            # Drop completely empty junk rows
+            df = df.replace("", pd.NA).dropna(how='all')
+            return df
         except gspread.exceptions.APIError:
             if attempt == 2:
-                st.error("Google Sheets API is currently busy. Displaying cached or empty data.")
+                st.error("Google Sheets API limit reached. Displaying cached data.")
                 return pd.DataFrame()
-            time.sleep(2 ** attempt) # Waits 1s, then 2s, then fails gracefully
+            time.sleep(2 ** attempt)
     return pd.DataFrame()
 
 def push_to_table(df, tab_name):
     worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-    first_row = worksheet.row_values(1)
-    
-    if not first_row or all(cell == "" for cell in first_row):
-        worksheet.update('A1', [list(df.columns)])
-    
     data_to_upload = df.fillna("").astype(str).values.tolist()
     worksheet.append_rows(data_to_upload)
-    
-    # Clear the cache so the dashboard immediately shows the new data
     st.cache_data.clear() 
     return True
 
@@ -57,7 +78,11 @@ def remove_duplicates(new_df, tab_name):
         return new_df
         
     def make_key(df):
-        return df['Transaction Date'].astype(str) + "|" + df['Description'].astype(str).str.strip().str.upper() + "|" + df['Withdrawals'].astype(str)
+        # Dynamically find the right columns just in case headers shift
+        date_col = 'Transaction Date' if 'Transaction Date' in df.columns else df.columns[0]
+        desc_col = 'Description' if 'Description' in df.columns else df.columns[1]
+        amt_col = 'Withdrawals' if 'Withdrawals' in df.columns else df.columns[2]
+        return df[date_col].astype(str) + "|" + df[desc_col].astype(str).str.strip().str.upper() + "|" + df[amt_col].astype(str)
         
     new_df['dup_key'] = make_key(new_df)
     master_df['dup_key'] = make_key(master_df)
@@ -67,21 +92,28 @@ def remove_duplicates(new_df, tab_name):
     
 def update_expense_status(expense_ids, bank_reference):
     worksheet = get_worksheet("Stoic_Social_ERP", "Expense_Log")
-    records = worksheet.get_all_records()
+    data = worksheet.get_all_values()
+    if not data: return False
     
-    # --- FIX 2: BATCH CELL UPDATING ---
+    headers = data[0]
+    try:
+        id_col_idx = headers.index("Expense_ID")
+        status_col_idx = headers.index("Status") + 1
+        ref_col_idx = headers.index("Bank_Reference") + 1
+    except ValueError:
+        id_col_idx = 0
+        status_col_idx = 7
+        ref_col_idx = 8
+    
     cells_to_update = []
-    for idx, row in enumerate(records):
-        if str(row.get('Expense_ID')) in expense_ids:
-            row_num = idx + 2 
-            # We bundle the updates into memory instead of hitting the API one by one
-            cells_to_update.append(gspread.Cell(row=row_num, col=7, value="Settled"))
-            cells_to_update.append(gspread.Cell(row=row_num, col=8, value=bank_reference))
+    for idx, row in enumerate(data):
+        if idx == 0: continue
+        if len(row) > id_col_idx and str(row[id_col_idx]) in expense_ids:
+            row_num = idx + 1 
+            cells_to_update.append(gspread.Cell(row=row_num, col=status_col_idx, value="Settled"))
+            cells_to_update.append(gspread.Cell(row=row_num, col=ref_col_idx, value=bank_reference))
             
     if cells_to_update:
-        # Pushes all changes in ONE single API call
         worksheet.update_cells(cells_to_update)
-        
-    # Clear the cache so the pending expenses disappear from the UI immediately
     st.cache_data.clear()
     return True
