@@ -19,15 +19,18 @@ def clean_bank_statement(uploaded_file):
 
     # Rebuild DataFrame
     df = pd.DataFrame(df_raw.values[header_idx+1:], columns=df_raw.iloc[header_idx])
-    df.columns = df.columns.astype(str).str.strip()
+    
+    # --- THE FIX: Force every single column name to be a string ---
+    df.columns = [str(c).strip() for c in df.columns]
     
     # Drop completely unnamed/empty garbage columns
-    df = df.loc[:, ~df.columns.str.contains('^nan|^Unnamed', case=False, na=False)]
+    df = df.loc[:, ~df.columns.str.contains('^nan|^unnamed', case=False, na=False)]
 
     # 3. DYNAMIC COLUMN MAPPING (This prevents KeyErrors and missing data)
     col_map = {}
     for col in df.columns:
-        c_lower = col.lower()
+        # Extra failsafe: wrap col in str()
+        c_lower = str(col).lower() 
         if 'date' in c_lower and 'value' not in c_lower:
             col_map[col] = 'Transaction Date'
         elif 'desc' in c_lower or 'narration' in c_lower or 'particulars' in c_lower:
