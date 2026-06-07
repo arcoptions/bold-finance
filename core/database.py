@@ -20,51 +20,32 @@ def get_worksheet(sheet_name, tab_name):
 
 @st.cache_data(ttl=300)
 def fetch_table(tab_name):
+    # Always return a DataFrame, even on failure
+    result_df = pd.DataFrame() 
+    
     for attempt in range(3):
         try:
             worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-            # BRUTE FORCE METHOD: Get every cell in the sheet to bypass formatting errors
             data = worksheet.get_all_values()
             if not data:
                 return pd.DataFrame()
             
-            # Find the true header row (the first row that actually has text in multiple columns)
+            # Find the header row
             header_idx = 0
             for i, row in enumerate(data):
-                filled_cells = [cell for cell in row if str(cell).strip()]
-                if len(filled_cells) >= 3:
+                if len([c for c in row if str(c).strip()]) >= 3:
                     header_idx = i
                     break
-                    
-            raw_headers = data[header_idx]
             
-            # Clean headers and forcefully rename duplicate columns (Pandas crashes if columns share a name)
-            seen = {}
-            clean_headers = []
-            for h in raw_headers:
-                h_clean = str(h).strip()
-                if not h_clean:
-                    h_clean = "Unnamed"
-                if h_clean in seen:
-                    seen[h_clean] += 1
-                    clean_headers.append(f"{h_clean}_{seen[h_clean]}")
-                else:
-                    seen[h_clean] = 0
-                    clean_headers.append(h_clean)
-                    
-            # Build the DataFrame safely
-            df = pd.DataFrame(data[header_idx+1:], columns=clean_headers)
-            
-            # Drop completely empty junk rows
-            df = df.replace("", pd.NA).dropna(how='all')
-            return df
-        except gspread.exceptions.APIError:
-            if attempt == 2:
-                st.error("Google Sheets API limit reached. Displaying cached data.")
-                return pd.DataFrame()
+            # Build DataFrame
+            df = pd.DataFrame(data[header_idx+1:], columns=data[header_idx])
+            df = df.loc[:, ~df.columns.duplicated()] # Drop duplicate columns
+            result_df = df.replace("", pd.NA).dropna(how='all')
+            break # Success!
+        except Exception:
             time.sleep(2 ** attempt)
-    return pd.DataFrame()
-
+            
+    return result_df
 def push_to_table(df, tab_name):
     worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
     data_to_upload = df.fillna("").astype(str).values.tolist()
