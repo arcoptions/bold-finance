@@ -73,8 +73,29 @@ def render_dashboard_view():
 
     # --- CHARTS ---
     st.markdown("---")
+
+     # ROW 1: Distributions
+    col_c, col_d = st.columns(2)
+    expenses_df = filtered_df[filtered_df[wth_col] > 0]
     
-    # ROW 1: Waterfall & Trend
+    with col_c:
+        st.subheader("Expense Distribution")
+        if not expenses_df.empty and rmk_col:
+            exp_data = expenses_df.groupby(rmk_col)[wth_col].sum().reset_index()
+            fig_pie = px.pie(exp_data, values=wth_col, names=rmk_col, hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel)
+            fig_pie.update_layout(showlegend=False, margin=dict(t=10, b=10))
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_d:
+        st.subheader("Top Payees")
+        if not expenses_df.empty and per_col:
+            top = expenses_df.groupby(per_col)[wth_col].sum().reset_index().sort_values(wth_col, ascending=True).tail(5)
+            fig_bar = px.bar(top, x=wth_col, y=per_col, orientation='h', color_discrete_sequence=['#3B82F6'])
+            fig_bar.update_layout(margin=dict(t=10, b=10))
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+    
+    # ROW 2: Waterfall & Trend
     col_a, col_b = st.columns(2)
     
     with col_a:
@@ -99,22 +120,4 @@ def render_dashboard_view():
             fig.update_layout(barmode='group', margin=dict(t=20, b=20))
             st.plotly_chart(fig, use_container_width=True)
 
-    # ROW 2: Distributions
-    col_c, col_d = st.columns(2)
-    expenses_df = filtered_df[filtered_df[wth_col] > 0]
-    
-    with col_c:
-        st.subheader("Expense Distribution")
-        if not expenses_df.empty and rmk_col:
-            exp_data = expenses_df.groupby(rmk_col)[wth_col].sum().reset_index()
-            fig_pie = px.pie(exp_data, values=wth_col, names=rmk_col, hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel)
-            fig_pie.update_layout(showlegend=False, margin=dict(t=10, b=10))
-            st.plotly_chart(fig_pie, use_container_width=True)
-
-    with col_d:
-        st.subheader("Top Payees")
-        if not expenses_df.empty and per_col:
-            top = expenses_df.groupby(per_col)[wth_col].sum().reset_index().sort_values(wth_col, ascending=True).tail(5)
-            fig_bar = px.bar(top, x=wth_col, y=per_col, orientation='h', color_discrete_sequence=['#3B82F6'])
-            fig_bar.update_layout(margin=dict(t=10, b=10))
-            st.plotly_chart(fig_bar, use_container_width=True)
+   
