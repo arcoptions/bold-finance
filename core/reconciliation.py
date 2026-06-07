@@ -19,17 +19,14 @@ def clean_bank_statement(uploaded_file):
 
     # Rebuild DataFrame
     df = pd.DataFrame(df_raw.values[header_idx+1:], columns=df_raw.iloc[header_idx])
-    
-    # --- THE FIX: Force every single column name to be a string ---
     df.columns = [str(c).strip() for c in df.columns]
     
     # Drop completely unnamed/empty garbage columns
     df = df.loc[:, ~df.columns.str.contains('^nan|^unnamed', case=False, na=False)]
 
-    # 3. DYNAMIC COLUMN MAPPING (This prevents KeyErrors and missing data)
+    # 3. DYNAMIC COLUMN MAPPING
     col_map = {}
     for col in df.columns:
-        # Extra failsafe: wrap col in str()
         c_lower = str(col).lower() 
         if 'date' in c_lower and 'value' not in c_lower:
             col_map[col] = 'Transaction Date'
@@ -45,15 +42,20 @@ def clean_bank_statement(uploaded_file):
     df = df.rename(columns=col_map)
     
     # Failsafe check
-    if 'Description' not in df.columns:
+    if 'Description' not in df.columns or 'Transaction Date' not in df.columns:
         return pd.DataFrame()
 
-    df = df.dropna(subset=['Description'])
-    
     # 4. STRICT FINANCIAL FILTERING (Removes Footers/Disclaimers)
+    # Genuine transactions must have a parsable Date. Footers do not.
+    df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
+    df = df.dropna(subset=['Transaction Date', 'Description'])
+    
+    # Format the date back to standard string for the UI
+    df['Transaction Date'] = df['Transaction Date'].dt.strftime('%Y-%m-%d')
+    
     # Strip commas and ₹ symbols, force to pure numbers
-    df['Withdrawals'] = pd.to_numeric(df.get('Withdrawals', pd.Series(dtype=float)).astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
-    df['Deposits'] = pd.to_numeric(df.get('Deposits', pd.Series(dtype=float)).astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0)
+    df['Withdrawals'] = pd.to_numeric(df.get('Withdrawals', pd.Series(dtype=float)).astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
+    df['Deposits'] = pd.to_numeric(df.get('Deposits', pd.Series(dtype=float)).astype(str).str.replace(r'[^\d\.]', '', regex=True), errors='coerce').fillna(0.0)
     
     # Only keep genuine monetary transactions
     df = df[(df['Withdrawals'] > 0) | (df['Deposits'] > 0)]
