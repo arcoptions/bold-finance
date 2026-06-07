@@ -89,11 +89,30 @@ def generate_invoice_pdf(invoice_data):
     elements.append(item_table)
 
     # --- Footer ---
-    elements.append(Spacer(1, 40))
-    elements.append(Paragraph("<b>Bank Details:</b>", styles['Normal']))
+    # Add Total in Words
+    total_in_words = get_amount_in_words(total)
+    elements.append(Paragraph(f"<b>Amount in Words:</b> {total_in_words}", styles['Normal']))
+    elements.append(Spacer(1, 20))
+
+    # Add Bank Details and Signature Block
+    bank_and_sign_data = [
+        [Paragraph("<b>Bank Details:</b><br/>"
+                   f"Bank: {BANK_NAME}<br/>"
+                   f"A/c Name: {BANK_ACCOUNT_NAME}<br/>"
+                   f"A/c No: {BANK_ACCOUNT_NO}<br/>"
+                   f"IFSC: {BANK_IFSC}", styles['Normal']),
+         Paragraph("<b>For BOLD AND ITALIC</b><br/><br/><br/><br/>"
+                   "__________________________<br/>"
+                   "Authorized Signatory", styles['Normal'])]
+    ]
     
-    bank_text = f"Bank: {BANK_NAME}<br/>A/c Name: {BANK_ACCOUNT_NAME}<br/>A/c No: {BANK_ACCOUNT_NO}<br/>IFSC: {BANK_IFSC}"
-    elements.append(Paragraph(bank_text, styles['Normal']))
+    footer_table = Table(bank_and_sign_data, colWidths=[3.5 * inch, 3.5 * inch])
+    footer_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+    ]))
+    elements.append(footer_table)
     
     doc.build(elements)
     buffer.seek(0)
