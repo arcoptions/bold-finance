@@ -48,54 +48,51 @@ def generate_invoice_pdf(invoice_data):
     # 4. Itemized Table
     table_data = [['S.No', 'Description', 'HSN/SAC', 'Qty', 'Rate', 'Amount']]
     
-    subtotal = 0
+    subtotal = 0.0
     for idx, item in enumerate(invoice_data['items']):
-        amt = item['qty'] * item['rate']
+        amt = float(item['qty']) * float(item['rate'])
         subtotal += amt
-        table_data.append([str(idx+1), item['desc'], item['hsn'], str(item['qty']), f"{item['rate']:,.2f}", f"{amt:,.2f}"])
+        table_data.append([str(idx+1), item['desc'], item['hsn'], str(item['qty']), f"{float(item['rate']):,.2f}", f"{amt:,.2f}"])
 
-    # --- TAX & DISCOUNT LOGIC (The updated section) ---
+    # --- MATH LOGIC (Synchronized with Preview) ---
     discount = float(invoice_data.get('discount', 0))
     deduction = float(invoice_data.get('deduction', 0))
     
     # Net amount on which GST is applied
-    net_taxable = max(0.0, subtotal - discount - deduction)
-    tax_amt = net_taxable * 0.18
+    net_taxable = round(max(0.0, subtotal - discount - deduction), 2)
+    tax_amt = round(net_taxable * 0.18, 2)
     
-    # Add Subtotal row
+    # Table Rows
     table_data.append(['', '', '', '', 'Subtotal', f"{subtotal:,.2f}"])
     
-    # Add optional rows
     if discount > 0:
         table_data.append(['', '', '', '', 'Discount', f"-{discount:,.2f}"])
     if deduction > 0:
         table_data.append(['', '', '', '', 'Other Deductions', f"-{deduction:,.2f}"])
     
-    # Add Taxable Amount Row for transparency
     table_data.append(['', '', '', '', 'Taxable Amount', f"{net_taxable:,.2f}"])
 
-    # Existing Tax Logic (Telangana vs IGST)
+    # Tax Logic (Telangana vs IGST)
     is_telangana = invoice_data['place_of_supply'].strip().lower() == "telangana"
     if is_telangana:
-        table_data.append(['', '', '', '', 'CGST (9%)', f"{net_taxable*0.09:,.2f}"])
-        table_data.append(['', '', '', '', 'SGST (9%)', f"{net_taxable*0.09:,.2f}"])
+        table_data.append(['', '', '', '', 'CGST (9%)', f"{round(net_taxable*0.09, 2):,.2f}"])
+        table_data.append(['', '', '', '', 'SGST (9%)', f"{round(net_taxable*0.09, 2):,.2f}"])
     else:
         table_data.append(['', '', '', '', 'IGST (18%)', f"{tax_amt:,.2f}"])
 
-    # Final Total
-    total = net_taxable + tax_amt
+    total = round(net_taxable + tax_amt, 2)
     table_data.append(['', '', '', '', 'Grand Total', f"{total:,.2f}"])
 
     # 5. Styling
     item_table = Table(table_data, colWidths=[0.5*inch, 2.5*inch, 0.8*inch, 0.5*inch, 1.0*inch, 1.0*inch])
     styles_list = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
-        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'), # Align money right
-        ('ALIGN', (1, 1), (1, -1), 'LEFT'),   # Align Description left
+        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'), 
+        ('ALIGN', (1, 1), (1, -1), 'LEFT'),   
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')
     ]
-    # Bold the last row (Grand Total)
+    # Bold the Grand Total row
     styles_list.append(('FONTNAME', (4, -1), (-1, -1), 'Helvetica-Bold'))
         
     item_table.setStyle(TableStyle(styles_list))
