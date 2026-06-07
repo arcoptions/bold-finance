@@ -75,7 +75,7 @@ def render_dashboard_view():
     st.markdown("---")
     
     # ROW 1: Waterfall & Trend
-    col_b = st.column()
+    cola_a,col_b = st.columns(2)
     
     with col_b:
         st.subheader("Monthly Revenue vs. Expenses")
