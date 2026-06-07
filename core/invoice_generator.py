@@ -91,7 +91,9 @@ def generate_invoice_pdf(invoice_data):
     # --- Footer ---
     elements.append(Spacer(1, 40))
     elements.append(Paragraph("<b>Bank Details:</b>", styles['Normal']))
-    elements.append(Paragraph("Bank: YES BANK<br/>A/c Name: BOLD AND ITALIC<br/>A/c No: 123456789<br/>IFSC: YESB0000001", styles['Normal'])) # Update with actual bank
+    
+    bank_text = f"Bank: {BANK_NAME}<br/>A/c Name: {BANK_ACCOUNT_NAME}<br/>A/c No: {BANK_ACCOUNT_NO}<br/>IFSC: {BANK_IFSC}"
+    elements.append(Paragraph(bank_text, styles['Normal']))
     
     doc.build(elements)
     buffer.seek(0)
