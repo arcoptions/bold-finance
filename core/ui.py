@@ -31,5 +31,8 @@ def inject_custom_css():
 
 def render_sidebar_logo():
     # Replace the URL/path with your actual corporate logo
-    st.sidebar.markdown("### Stoic Financial ERP")
+    if os.path.exists("logo.png"):
+        st.logo("logo.png", size="large")
+
+    st.sidebar.markdown("### B&I Financial ERP")
     st.sidebar.markdown("---")
