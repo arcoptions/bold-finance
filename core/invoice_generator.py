@@ -48,52 +48,47 @@ def generate_invoice_pdf(invoice_data):
     elements.append(Spacer(1, 20))
 
     # 4. Itemized Table
-    table_data = [['S.No', 'Description', 'HSN/SAC', 'Qty', 'Rate', 'Amount']]
-    
+    table_data = [['S.No', 'Description', 'HSN', 'Qty', 'Rate', 'Amount']]
     subtotal = 0
-    num_items = len(invoice_data['items'])
     for idx, item in enumerate(invoice_data['items']):
         amt = item['qty'] * item['rate']
         subtotal += amt
-        table_data.append([str(idx + 1), item['desc'], item['hsn'], str(item['qty']), f"{item['rate']:,.2f}", f"{amt:,.2f}"])
+        table_data.append([str(idx+1), item['desc'], item['hsn'], str(item['qty']), f"{item['rate']:,.2f}", f"{amt:,.2f}"])
 
     # Tax Logic
     is_telangana = invoice_data['place_of_supply'].strip().lower() == "telangana"
+    tax_amt = subtotal * 0.18
+    
+    table_data.append(['', '', '', '', 'Subtotal', f"{subtotal:,.2f}"])
     if is_telangana:
-        cgst = subtotal * 0.09
-        sgst = subtotal * 0.09
-        total = subtotal + cgst + sgst
-        table_data.extend([['', '', '', '', 'Subtotal', f"{subtotal:,.2f}"],
-                           ['', '', '', '', 'CGST (9%)', f"{cgst:,.2f}"],
-                           ['', '', '', '', 'SGST (9%)', f"{sgst:,.2f}"]])
+        table_data.append(['', '', '', '', 'CGST (9%)', f"{subtotal*0.09:,.2f}"])
+        table_data.append(['', '', '', '', 'SGST (9%)', f"{subtotal*0.09:,.2f}"])
     else:
-        igst = subtotal * 0.18
-        total = subtotal + igst
-        table_data.extend([['', '', '', '', 'Subtotal', f"{subtotal:,.2f}"],
-                           ['', '', '', '', 'IGST (18%)', f"{igst:,.2f}"]])
+        table_data.append(['', '', '', '', 'IGST (18%)', f"{tax_amt:,.2f}"])
+        
+    # Add Deductions if present
+    if invoice_data.get('discount', 0) > 0:
+        table_data.append(['', '', '', '', 'Discount', f"-{invoice_data['discount']:,.2f}"])
+    if invoice_data.get('deduction', 0) > 0:
+        table_data.append(['', '', '', '', 'Deduction', f"-{invoice_data['deduction']:,.2f}"])
 
+    total = subtotal + tax_amt - invoice_data.get('discount', 0) - invoice_data.get('deduction', 0)
     table_data.append(['', '', '', '', 'Grand Total', f"{total:,.2f}"])
 
-    # Professional Styling
-    # Col widths adjusted: S.No, Desc, HSN, Qty, Rate, Amount
+    # Apply Right Alignment for all numeric columns (4 and 5)
     item_table = Table(table_data, colWidths=[0.5*inch, 2.5*inch, 0.8*inch, 0.5*inch, 1.0*inch, 1.0*inch])
-    
-    style_commands = [
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')), # Grey Header
-        ('ALIGN', (0, 0), (-1, 0), 'CENTER'), # Header centered
-        ('ALIGN', (1, 1), (1, -1), 'LEFT'),   # Description left
-        ('ALIGN', (4, 1), (-1, -1), 'RIGHT'), # Numbers right
+    styles_list = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
+        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'), # Force Right Align Money
+        ('ALIGN', (1, 1), (1, -1), 'LEFT'),   # Description Left
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')
     ]
+    # Bold the totals
+    styles_list.append(('FONTNAME', (4, -1), (-1, -1), 'Helvetica-Bold'))
     
-    # Bold the last 4 rows (Subtotal, Tax, Total)
-    for i in range(1, 5):
-        style_commands.append(('FONTNAME', (4, -i), (-1, -i), 'Helvetica-Bold'))
-        
-    item_table.setStyle(TableStyle(style_commands))
+    item_table.setStyle(TableStyle(styles_list))
     elements.append(item_table)
-    elements.append(Spacer(1, 20))
 
     # 5. Footer & Legal
     elements.append(Paragraph(f"<b>Amount in Words:</b> {get_amount_in_words(total)}", styles['Normal']))
