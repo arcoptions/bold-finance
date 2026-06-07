@@ -39,19 +39,16 @@ def push_to_table(df, tab_name):
     return True
 
 def remove_duplicates(new_df, tab_name):
-    """Prevents duplicate transactions from syncing to the Master Ledger."""
     master_df = fetch_table(tab_name)
     if master_df.empty:
         return new_df
         
-    # Create a composite key to identify unique transactions (Date + Description + Amount)
     def make_key(df):
         return df['Transaction Date'].astype(str) + "|" + df['Description'].astype(str).str.strip().str.upper() + "|" + df['Withdrawals'].astype(str)
         
     new_df['dup_key'] = make_key(new_df)
     master_df['dup_key'] = make_key(master_df)
     
-    # Filter out rows that already exist in the master sheet
     clean_df = new_df[~new_df['dup_key'].isin(master_df['dup_key'])].drop(columns=['dup_key'])
     return clean_df
     
