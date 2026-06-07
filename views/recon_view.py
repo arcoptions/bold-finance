@@ -8,6 +8,10 @@ def render_recon_view():
     uploaded_file = st.file_uploader("Upload Bank Statement (.xls/.xlsx/.csv)", type=['xls', 'xlsx', 'csv'])
 
     if uploaded_file:
+        # Validate File Extension
+        if not uploaded_file.name.endswith(('.xls', '.xlsx', '.csv')):
+            st.error("Unsupported file type. Please upload a .xls, .xlsx, or .csv file.")
+            return
         master_df = fetch_table("Transactions_Master")
         raw_df = clean_bank_statement(uploaded_file)
         
