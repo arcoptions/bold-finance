@@ -16,7 +16,6 @@ if uploaded_file:
     master_df = fetch_table("Transactions_Master")
     raw_df = clean_bank_statement(uploaded_file)
     
-    # Deduplication Check
     if not master_df.empty and 'Cheque No/Reference No' in master_df.columns:
         existing_refs = master_df['Cheque No/Reference No'].astype(str).tolist()
         raw_df = raw_df[~raw_df['Cheque No/Reference No'].isin(existing_refs)]
@@ -49,7 +48,6 @@ if uploaded_file:
 
         st.markdown("---")
         if st.button("Commit to Master Ledger", type="primary"):
-            # Drop the helper column before saving
             final_df = processed_df.drop(columns=['Match_Confidence'])
             push_to_table(final_df, "Transactions_Master")
             st.success("Transactions successfully merged to Master Ledger.")
