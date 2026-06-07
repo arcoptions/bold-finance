@@ -24,33 +24,43 @@ def fetch_table(tab_name):
         if data:
             return pd.DataFrame(data)
     except Exception:
-        # Failsafe if headers are missing or malformed
         pass
     return pd.DataFrame()
 
 def push_to_table(df, tab_name):
     worksheet = get_worksheet("Stoic_Social_ERP", tab_name)
-    
-    # 1. Get the first row to check if headers exist
     first_row = worksheet.row_values(1)
     
-    # 2. If the first row is empty, force-write the headers
     if not first_row or all(cell == "" for cell in first_row):
         worksheet.update('A1', [list(df.columns)])
     
-    # 3. Append the new data
     data_to_upload = df.fillna("").astype(str).values.tolist()
     worksheet.append_rows(data_to_upload)
     return True
 
+def remove_duplicates(new_df, tab_name):
+    """Prevents duplicate transactions from syncing to the Master Ledger."""
+    master_df = fetch_table(tab_name)
+    if master_df.empty:
+        return new_df
+        
+    # Create a composite key to identify unique transactions (Date + Description + Amount)
+    def make_key(df):
+        return df['Transaction Date'].astype(str) + "|" + df['Description'].astype(str).str.strip().str.upper() + "|" + df['Withdrawals'].astype(str)
+        
+    new_df['dup_key'] = make_key(new_df)
+    master_df['dup_key'] = make_key(master_df)
+    
+    # Filter out rows that already exist in the master sheet
+    clean_df = new_df[~new_df['dup_key'].isin(master_df['dup_key'])].drop(columns=['dup_key'])
+    return clean_df
+    
 def update_expense_status(expense_ids, bank_reference):
     worksheet = get_worksheet("Stoic_Social_ERP", "Expense_Log")
     records = worksheet.get_all_records()
-    
     for idx, row in enumerate(records):
         if str(row.get('Expense_ID')) in expense_ids:
-            # idx + 2 accounts for 0-indexing and the header row
             row_num = idx + 2 
-            worksheet.update_cell(row_num, 7, "Settled")       # Column G: Status
-            worksheet.update_cell(row_num, 8, bank_reference)  # Column H: Bank_Reference
+            worksheet.update_cell(row_num, 7, "Settled")       
+            worksheet.update_cell(row_num, 8, bank_reference)  
     return True
