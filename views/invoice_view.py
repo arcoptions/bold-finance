@@ -77,3 +77,4 @@ def render_invoice_view():
             file_name=f"{inv_no}.pdf",
             mime="application/pdf"
             )
+        
