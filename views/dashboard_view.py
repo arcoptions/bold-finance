@@ -12,8 +12,8 @@ def render_dashboard_view():
     with col_btn:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔄 Sync Live Data", use_container_width=True):
-            st.cache_data.clear() # Clears the Streamlit memory cache
-            st.rerun()            # Refreshes the page immediately
+            st.cache_data.clear() 
+            st.rerun()            
 
     df = fetch_table("Transactions_Master")
 
@@ -21,76 +21,81 @@ def render_dashboard_view():
         st.info("The Master Ledger is empty. Process a statement to view analytics.")
         return
 
-    # --- BULLETPROOF DATA CLEANING ---
-    # 1. Force convert financial columns to strings, strip EVERYTHING except digits, decimals, and minus signs
-    for col in ['Deposits', 'Withdrawals', 'Running Balance']:
-        if col in df.columns:
-            # The Regex r'[^\d\.-]' targets anything that is NOT a number, dot, or minus sign and deletes it.
-            # This fixes ₹ symbols, $, commas, non-breaking spaces, and random letters.
-            df[col] = df[col].astype(str).str.replace(r'[^\d\.-]', '', regex=True)
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-    
-    # 2. Parse Dates Safely
-    if 'Transaction Date' in df.columns:
-        df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
-    else:
-        st.error("Missing 'Transaction Date' column in Master Ledger.")
-        return
-        
-    # Fallback to 'Value Date' if 'Transaction Date' is accidentally empty in some rows
-    if 'Value Date' in df.columns:
-        df['Value Date'] = pd.to_datetime(df['Value Date'], errors='coerce')
-        df['Transaction Date'] = df['Transaction Date'].fillna(df['Value Date'])
+    # --- DYNAMIC COLUMN MAPPING ---
+    def get_col(possible_names):
+        for name in possible_names:
+            for col in df.columns:
+                if name.lower() == col.lower().strip():
+                    return col
+        return None
 
-    # Drop rows where we absolutely cannot figure out the date (Junk headers)
-    df = df.dropna(subset=['Transaction Date'])
-    if df.empty:
-        st.warning("No valid dates found in the ledger. Please check your Transaction Date formatting.")
+    dep_col = get_col(['Deposits', 'Deposit', 'Credit'])
+    wth_col = get_col(['Withdrawals', 'Withdrawal', 'Debit'])
+    date_col = get_col(['Transaction Date', 'Date', 'Value Date'])
+    bal_col = get_col(['Running Balance', 'Balance', 'Running_Balance'])
+
+    if not dep_col or not wth_col:
+        st.error("Could not locate financial columns. Please check your Google Sheet headers.")
+        st.write("Found columns:", list(df.columns))
         return
-        
-    df['Month'] = df['Transaction Date'].dt.to_period('M').astype(str)
-    
-    # Fill empty categories so Plotly doesn't crash
-    if 'Remarks' in df.columns:
-        df['Remarks'] = df['Remarks'].replace('', 'Uncategorized').fillna('Uncategorized')
-    if 'Person' in df.columns:
-        df['Person'] = df['Person'].replace('', 'Unknown').fillna('Unknown')
+
+    # --- DATA CLEANING ---
+    for col in [dep_col, wth_col, bal_col]:
+        if col:
+            # Aggressively extract only numbers to prevent string calculation crashes
+            df[col] = df[col].astype(str).str.replace(r'[^\d\.-]', '', regex=True)
+            df[col] = df[col].replace('', '0')
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+
+    # Safely parse dates, capturing unreadable dates into 'Unknown Date' instead of dropping them
+    if date_col:
+        df['Parsed_Date'] = pd.to_datetime(df[date_col], dayfirst=True, errors='coerce')
+        df['Month'] = df['Parsed_Date'].dt.to_period('M').astype(str)
+        df['Month'] = df['Month'].replace('NaT', 'Unknown Date')
+    else:
+        df['Month'] = 'Unknown Date'
+
+    rmk_col = get_col(['Remarks', 'Category'])
+    per_col = get_col(['Person', 'Client', 'Vendor'])
+    ent_col = get_col(['Entity', 'Company'])
+
+    if rmk_col: df[rmk_col] = df[rmk_col].fillna('Uncategorized').replace('', 'Uncategorized')
+    if per_col: df[per_col] = df[per_col].fillna('Unknown').replace('', 'Unknown')
 
     # --- TOP FILTERS ---
     col1, col2 = st.columns(2)
     with col1:
-        if 'Entity' in df.columns:
-            entities = ["All"] + list(df['Entity'].dropna().unique())
+        if ent_col:
+            entities = ["All"] + list(df[ent_col].dropna().unique())
         else:
             entities = ["All"]
         entity_filter = st.selectbox("Entity View", entities)
         
     with col2:
-        months = sorted(list(df['Month'].unique()), reverse=True)
+        months = sorted([m for m in df['Month'].unique() if m != 'Unknown Date'], reverse=True)
+        if 'Unknown Date' in df['Month'].values:
+            months.append('Unknown Date')
         month_filter = st.selectbox("Period", ["All Time"] + months)
 
-    # Apply Filters to Working Data
+    # Apply Filters
     filtered_df = df.copy()
-    if entity_filter != "All" and 'Entity' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Entity'] == entity_filter]
+    if entity_filter != "All" and ent_col:
+        filtered_df = filtered_df[filtered_df[ent_col] == entity_filter]
     if month_filter != "All Time":
         filtered_df = filtered_df[filtered_df['Month'] == month_filter]
 
     # --- METRICS CALCULATION ---
-    tot_dep = float(filtered_df['Deposits'].sum()) if 'Deposits' in filtered_df.columns else 0.0
-    tot_wth = float(filtered_df['Withdrawals'].sum()) if 'Withdrawals' in filtered_df.columns else 0.0
+    tot_dep = float(filtered_df[dep_col].sum())
+    tot_wth = float(filtered_df[wth_col].sum())
     net_cf = tot_dep - tot_wth
 
-    # --- TRUE CLOSING BALANCE LOGIC ---
-    time_filtered_df = df.copy()
-    if month_filter != "All Time":
-        time_filtered_df = time_filtered_df[time_filtered_df['Month'] == month_filter]
-        
-    if not time_filtered_df.empty and 'Running Balance' in time_filtered_df.columns:
-        sorted_time_df = time_filtered_df.reset_index().sort_values(['Transaction Date', 'index'])
-        closing_bal = float(sorted_time_df.iloc[-1]['Running Balance'])
-    else:
-        closing_bal = 0.0
+    closing_bal = 0.0
+    if bal_col and not filtered_df.empty:
+        if 'Parsed_Date' in filtered_df.columns:
+            sorted_df = filtered_df.sort_values(by=['Parsed_Date'])
+            closing_bal = float(sorted_df.iloc[-1][bal_col])
+        else:
+            closing_bal = float(filtered_df.iloc[-1][bal_col])
 
     # --- RENDER METRICS ---
     m1, m2, m3, m4 = st.columns(4)
@@ -103,41 +108,47 @@ def render_dashboard_view():
 
     # --- ROW 1: TREND ANALYSIS ---
     st.subheader("Monthly Revenue vs. Expense Trend")
-    if not filtered_df.empty:
-        monthly_agg = filtered_df.groupby('Month')[['Deposits', 'Withdrawals']].sum().reset_index()
+    if not filtered_df.empty and month_filter == "All Time":
+        # Only plot actual months, ignore the 'Unknown Date' bucket
+        monthly_agg = filtered_df[filtered_df['Month'] != 'Unknown Date'].groupby('Month')[[dep_col, wth_col]].sum().reset_index()
         monthly_agg = monthly_agg.sort_values('Month')
         
-        fig_trend = go.Figure()
-        fig_trend.add_trace(go.Bar(
-            x=monthly_agg['Month'], y=monthly_agg['Deposits'],
-            name='Revenue (Deposits)', marker_color='#10B981'
-        ))
-        fig_trend.add_trace(go.Bar(
-            x=monthly_agg['Month'], y=monthly_agg['Withdrawals'],
-            name='Expenses (Withdrawals)', marker_color='#EF4444'
-        ))
-        
-        fig_trend.update_layout(
-            barmode='group',
-            margin=dict(t=10, b=10, l=10, r=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            xaxis_title="", 
-            yaxis_title="Amount (₹)"
-        )
-        st.plotly_chart(fig_trend, use_container_width=True)
+        if not monthly_agg.empty:
+            fig_trend = go.Figure()
+            fig_trend.add_trace(go.Bar(
+                x=monthly_agg['Month'], y=monthly_agg[dep_col],
+                name='Revenue (Deposits)', marker_color='#10B981'
+            ))
+            fig_trend.add_trace(go.Bar(
+                x=monthly_agg['Month'], y=monthly_agg[wth_col],
+                name='Expenses (Withdrawals)', marker_color='#EF4444'
+            ))
+            
+            fig_trend.update_layout(
+                barmode='group',
+                margin=dict(t=10, b=10, l=10, r=10),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                xaxis_title="", 
+                yaxis_title="Amount (₹)"
+            )
+            st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.info("No valid monthly data to plot.")
+    elif month_filter != "All Time":
+        st.info("Trend analysis is only visible in 'All Time' view.")
 
     st.markdown("---")
 
     # --- ROW 2: CATEGORY & VENDOR DRILL-DOWN ---
     c1, c2 = st.columns(2)
-    expenses_df = filtered_df[filtered_df['Withdrawals'] > 0]
+    expenses_df = filtered_df[filtered_df[wth_col] > 0]
 
     with c1:
         st.subheader("Expense Distribution")
-        if not expenses_df.empty and 'Remarks' in expenses_df.columns:
-            exp_by_remark = expenses_df.groupby('Remarks')['Withdrawals'].sum().reset_index()
+        if not expenses_df.empty and rmk_col:
+            exp_by_remark = expenses_df.groupby(rmk_col)[wth_col].sum().reset_index()
             fig_pie = px.pie(
-                exp_by_remark, values='Withdrawals', names='Remarks', hole=0.5,
+                exp_by_remark, values=wth_col, names=rmk_col, hole=0.5,
                 color_discrete_sequence=px.colors.qualitative.Pastel
             )
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
@@ -148,14 +159,13 @@ def render_dashboard_view():
 
     with c2:
         st.subheader("Top Payees / Vendors")
-        if not expenses_df.empty and 'Person' in expenses_df.columns:
-            top_vendors = expenses_df.groupby('Person')['Withdrawals'].sum().reset_index().sort_values('Withdrawals', ascending=True).tail(5)
-            # Filter out the generic "Unknown" bucket if it exists
-            top_vendors = top_vendors[top_vendors['Person'] != 'Unknown']
+        if not expenses_df.empty and per_col:
+            top_vendors = expenses_df.groupby(per_col)[wth_col].sum().reset_index().sort_values(wth_col, ascending=True).tail(5)
+            top_vendors = top_vendors[top_vendors[per_col] != 'Unknown']
             
             if not top_vendors.empty:
                 fig_bar = px.bar(
-                    top_vendors, x='Withdrawals', y='Person', orientation='h',
+                    top_vendors, x=wth_col, y=per_col, orientation='h',
                     color_discrete_sequence=['#3B82F6']
                 )
                 fig_bar.update_layout(margin=dict(t=10, b=10, l=10, r=10), xaxis_title="Amount Spent (₹)", yaxis_title="")
