@@ -4,15 +4,20 @@ import plotly.express as px
 from core.database import fetch_table
 
 def render_dashboard_view():
+    st.markdown("<br>", unsafe_allow_html=True)
     df = fetch_table("Transactions_Master")
 
     if df.empty:
         st.info("The Master Ledger is empty. Process a statement to view analytics.")
         return
 
-    # Data Cleaning & Formatting
-    df['Deposits'] = pd.to_numeric(df['Deposits'], errors='coerce').fillna(0)
-    df['Withdrawals'] = pd.to_numeric(df['Withdrawals'], errors='coerce').fillna(0)
+    # --- CRITICAL DATA CLEANING ---
+    # 1. Remove commas and spaces from strings before converting to numbers
+    for col in ['Deposits', 'Withdrawals', 'Running Balance']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', '', regex=False).str.strip(), errors='coerce').fillna(0)
+    
+    # 2. Parse Dates safely
     df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
     df = df.dropna(subset=['Transaction Date'])
     df['Month'] = df['Transaction Date'].dt.to_period('M').astype(str)
@@ -29,54 +34,43 @@ def render_dashboard_view():
         months = sorted(list(df['Month'].unique()), reverse=True)
         month_filter = st.selectbox("Period", ["All Time"] + months)
 
-    # Apply Filters
+    # Apply Filters to Working Data
     filtered_df = df.copy()
     if entity_filter != "All":
         filtered_df = filtered_df[filtered_df['Entity'] == entity_filter]
     if month_filter != "All Time":
         filtered_df = filtered_df[filtered_df['Month'] == month_filter]
 
-    # --- KPI METRICS ---
+    # --- METRICS CALCULATION ---
     tot_dep = filtered_df['Deposits'].sum()
     tot_wth = filtered_df['Withdrawals'].sum()
     net_cf = tot_dep - tot_wth
 
+    # --- TRUE CLOSING BALANCE LOGIC ---
+    # Closing balance relies on the timeline, not the Entity filter.
+    time_filtered_df = df.copy()
+    if month_filter != "All Time":
+        time_filtered_df = time_filtered_df[time_filtered_df['Month'] == month_filter]
+        
+    if not time_filtered_df.empty and 'Running Balance' in time_filtered_df.columns:
+        # Sort by date and original index to keep same-day transactions in exact bank order
+        sorted_time_df = time_filtered_df.reset_index().sort_values(['Transaction Date', 'index'])
+        closing_bal = sorted_time_df.iloc[-1]['Running Balance']
+    else:
+        closing_bal = 0
+
+    # --- RENDER METRICS ---
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Total Revenue", f"₹ {tot_dep:,.0f}")
     m2.metric("Total Expenses", f"₹ {tot_wth:,.0f}")
     m3.metric("Net Cash Flow", f"₹ {net_cf:,.0f}")
-    
-    # Show Closing Balance if available
-    if not filtered_df.empty and 'Running Balance' in filtered_df.columns:
-        # Get the running balance of the most recent transaction in the filter
-        last_bal = pd.to_numeric(filtered_df.sort_values('Transaction Date').iloc[-1]['Running Balance'], errors='coerce')
-        m4.metric("Closing Bank Balance", f"₹ {last_bal:,.0f}" if pd.notnull(last_bal) else "N/A")
-    else:
-        m4.metric("Total Transactions", f"{len(filtered_df)}")
+    m4.metric("Closing Bank Balance", f"₹ {closing_bal:,.0f}" if closing_bal else "N/A")
 
     st.markdown("---")
 
-    # --- ROW 1: TREND ANALYSIS ---
-    st.subheader("Monthly Revenue vs. Expense Trend")
-    if not filtered_df.empty:
-        # Group data by month and sum deposits/withdrawals
-        monthly_agg = filtered_df.groupby('Month')[['Deposits', 'Withdrawals']].sum().reset_index()
-        # Restructure data for Plotly grouped bar chart
-        melted = monthly_agg.melt(id_vars='Month', value_vars=['Deposits', 'Withdrawals'], var_name='Type', value_name='Amount')
-        
-        fig_trend = px.bar(
-            melted, x='Month', y='Amount', color='Type', barmode='group',
-            color_discrete_map={'Deposits': '#10B981', 'Withdrawals': '#EF4444'}
-        )
-        fig_trend.update_layout(margin=dict(t=10, b=10, l=10, r=10), legend_title=None, xaxis_title="", yaxis_title="Amount (₹)")
-        st.plotly_chart(fig_trend, use_container_width=True)
-
-    st.markdown("---")
-
-    # --- ROW 2: CATEGORY & VENDOR DRILL-DOWN ---
+    # --- CHARTS ---
     c1, c2 = st.columns(2)
     expenses_df = filtered_df[filtered_df['Withdrawals'] > 0]
-    revenue_df = filtered_df[filtered_df['Deposits'] > 0]
 
     with c1:
         st.subheader("Expense Distribution")
