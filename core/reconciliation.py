@@ -2,12 +2,21 @@ import pandas as pd
 import numpy as np
 
 def clean_bank_statement(uploaded_file):
-    # 1. Safely read either CSV or Excel
+    # 1. Safely read either CSV or Excel and SKIP BAD LINES
     try:
-        df_raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+        # Check if the user uploaded an Excel file
+        if uploaded_file.name.endswith(('.xls', '.xlsx')):
+            df_raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+        else:
+            # It's a CSV: Explicitly skip junk disclaimer lines that throw ParserError
+            df_raw = pd.read_csv(uploaded_file, header=None, on_bad_lines='skip', engine='python', encoding='utf-8')
     except Exception:
-        uploaded_file.seek(0)
-        df_raw = pd.read_csv(uploaded_file, header=None)
+        # Fallback just in case the CSV uses a different text encoding
+        try:
+            uploaded_file.seek(0)
+            df_raw = pd.read_csv(uploaded_file, header=None, on_bad_lines='skip', engine='python', encoding='latin1')
+        except Exception:
+            return pd.DataFrame() # Safety net if the file is completely unreadable
         
     # 2. Dynamically find the real header row (Bypass bank logos/address)
     header_idx = 0
