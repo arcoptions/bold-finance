@@ -5,7 +5,10 @@ from core.invoice_generator import generate_invoice_pdf
 
 def render_invoice_view():
     st.markdown("## 🧾 Generate Invoice")
-    
+    # Initialize session state for PDF data
+    if 'pdf_data' not in st.session_state:
+        st.session_state.pdf_data = None
+        st.session_state.inv_no = ""
     with st.form("invoice_form"):
         # Top Config
         col1, col2, col3 = st.columns(3)
@@ -67,10 +70,10 @@ def render_invoice_view():
             
             st.success(f"Invoice generated successfully! Grand Total: ₹ {grand_total:,.2f}")
             
-            # Download Button
-            st.download_button(
-                label=f"⬇️ Download {inv_no}.pdf",
-                data=pdf_buffer,
-                file_name=f"{inv_no}.pdf",
-                mime="application/pdf"
+        # Download Button
+        st.download_button(
+            label=f"⬇️ Download {inv_no}.pdf",
+            data=pdf_buffer,
+            file_name=f"{inv_no}.pdf",
+            mime="application/pdf"
             )
