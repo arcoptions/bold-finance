@@ -68,14 +68,17 @@ def remove_duplicates(new_df, tab_name):
     if master_df.empty: return new_df
     
     def make_key(df):
-        # Dynamically map keys based on available columns
-        date_c = [c for c in df.columns if 'date' in c.lower()][0]
-        desc_c = [c for c in df.columns if 'desc' in c.lower()][0]
-        amt_c = [c for c in df.columns if 'withdraw' in c.lower()][0]
-        return df[date_c].astype(str) + "|" + df[desc_c].astype(str).str.strip().str.upper() + "|" + df[amt_c].astype(str)
+        # Safely locate the Date, Description, and Withdrawal columns dynamically
+        date_c = next((c for c in df.columns if 'date' in c.lower()), df.columns[0])
+        desc_c = next((c for c in df.columns if 'desc' in c.lower()), df.columns[1])
+        amt_c = next((c for c in df.columns if 'withdraw' in c.lower()), df.columns[2])
+        
+        # Create a unique composite key: Date + Description + Amount
+        return df[date_c].astype(str).str.strip() + "|" + df[desc_c].astype(str).str.strip().str.upper() + "|" + df[amt_c].astype(str).str.strip()
         
     new_df['dup_key'] = make_key(new_df)
     master_df['dup_key'] = make_key(master_df)
+    
     return new_df[~new_df['dup_key'].isin(master_df['dup_key'])].drop(columns=['dup_key'])
 
 def update_expense_status(expense_ids, bank_reference):
