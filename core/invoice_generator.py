@@ -7,7 +7,7 @@ from reportlab.lib.units import inch
 from num2words import num2words
 from core.constants import (
     COMPANY_NAME, COMPANY_CO, COMPANY_ADDRESS, 
-    COMPANY_GST, COMPANY_PAN, BANK_NAME, 
+    COMPANY_GSTIN, COMPANY_PAN, BANK_NAME, 
     BANK_ACCOUNT_NAME, BANK_ACCOUNT_NO, BANK_IFSC
 )
 
@@ -32,8 +32,8 @@ def generate_invoice_pdf(invoice_data):
     title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], alignment=1, fontSize=16, spaceAfter=10)
     elements.append(Paragraph(f"<b>{invoice_data['invoice_type'].upper()}</b>", title_style))
 
-    # 3. Company & Invoice Details
-    full_company_text = f"<b>{COMPANY_NAME}</b><br/>{COMPANY_CO}<br/>{COMPANY_ADDRESS.replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {COMPANY_GST}<br/><b>PAN:</b> {COMPANY_PAN}"
+    # 3. Company Info
+    full_company_text = f"<b>{COMPANY_NAME}</b><br/>{COMPANY_CO}<br/>{COMPANY_ADDRESS.replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {COMPANY_GSTIN}<br/><b>PAN:</b> {COMPANY_PAN}"
     
     top_data = [
         [Paragraph(full_company_text, styles['Normal']),
@@ -45,7 +45,12 @@ def generate_invoice_pdf(invoice_data):
     elements.append(top_table)
     elements.append(Spacer(1, 20))
 
-    # 4. Itemized Table
+    # 4. Billed To Section (RESTORED)
+    elements.append(Paragraph("<b>Billed To:</b>", styles['Heading3']))
+    elements.append(Paragraph(f"{invoice_data['client_name']}<br/>{invoice_data['client_address'].replace(chr(10), '<br/>')}<br/><b>GSTIN:</b> {invoice_data.get('client_gst', 'N/A')}", styles['Normal']))
+    elements.append(Spacer(1, 20))
+
+    # 5. Itemized Table
     table_data = [['S.No', 'Description', 'HSN/SAC', 'Qty', 'Rate', 'Amount']]
     
     subtotal = 0.0
@@ -54,25 +59,20 @@ def generate_invoice_pdf(invoice_data):
         subtotal += amt
         table_data.append([str(idx+1), item['desc'], item['hsn'], str(item['qty']), f"{float(item['rate']):,.2f}", f"{amt:,.2f}"])
 
-    # --- MATH LOGIC (Synchronized with Preview) ---
+    # --- MATH LOGIC ---
     discount = float(invoice_data.get('discount', 0))
     deduction = float(invoice_data.get('deduction', 0))
-    
-    # Net amount on which GST is applied
     net_taxable = round(max(0.0, subtotal - discount - deduction), 2)
     tax_amt = round(net_taxable * 0.18, 2)
     
-    # Table Rows
+    # Rows
     table_data.append(['', '', '', '', 'Subtotal', f"{subtotal:,.2f}"])
-    
     if discount > 0:
         table_data.append(['', '', '', '', 'Discount', f"-{discount:,.2f}"])
     if deduction > 0:
         table_data.append(['', '', '', '', 'Other Deductions', f"-{deduction:,.2f}"])
-    
     table_data.append(['', '', '', '', 'Taxable Amount', f"{net_taxable:,.2f}"])
 
-    # Tax Logic (Telangana vs IGST)
     is_telangana = invoice_data['place_of_supply'].strip().lower() == "telangana"
     if is_telangana:
         table_data.append(['', '', '', '', 'CGST (9%)', f"{round(net_taxable*0.09, 2):,.2f}"])
@@ -83,32 +83,35 @@ def generate_invoice_pdf(invoice_data):
     total = round(net_taxable + tax_amt, 2)
     table_data.append(['', '', '', '', 'Grand Total', f"{total:,.2f}"])
 
-    # 5. Styling
+    # Table Styling
     item_table = Table(table_data, colWidths=[0.5*inch, 2.5*inch, 0.8*inch, 0.5*inch, 1.0*inch, 1.0*inch])
     styles_list = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
-        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'), 
-        ('ALIGN', (1, 1), (1, -1), 'LEFT'),   
+        ('ALIGN', (4, 0), (-1, -1), 'RIGHT'),
+        ('ALIGN', (1, 1), (1, -1), 'LEFT'),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')
     ]
-    # Bold the Grand Total row
     styles_list.append(('FONTNAME', (4, -1), (-1, -1), 'Helvetica-Bold'))
-        
     item_table.setStyle(TableStyle(styles_list))
     elements.append(item_table)
     elements.append(Spacer(1, 20))
 
-    # 6. Footer (Amount in words + Declaration + Signature)
+    # 6. Footer (Amount in words + Declaration + Signature - RESTORED)
     elements.append(Paragraph(f"<b>Amount in Words:</b> {get_amount_in_words(total)}", styles['Normal']))
     elements.append(Spacer(1, 10))
     elements.append(Paragraph("<b>Declaration:</b><br/>Certified that the particulars given above are true and correct.", styles['Normal']))
-    elements.append(Spacer(1, 40))
+    elements.append(Spacer(1, 20))
 
-    sign_data = [["", f"For {COMPANY_NAME.upper()}"], ["", ""], ["", "Authorized Signatory"]]
-    sign_table = Table(sign_data, colWidths=[4*inch, 3*inch])
-    sign_table.setStyle(TableStyle([('ALIGN', (1, 2), (1, 2), 'CENTER')]))
-    elements.append(sign_table)
+    # Bank and Signature Side-by-Side
+    bank_and_sign_data = [
+        [Paragraph(f"<b>Bank Details:</b><br/>Bank: {BANK_NAME}<br/>A/c Name: {BANK_ACCOUNT_NAME}<br/>A/c No: {BANK_ACCOUNT_NO}<br/>IFSC: {BANK_IFSC}", styles['Normal']),
+         Paragraph(f"<b>For {COMPANY_NAME.upper()}</b><br/><br/><br/><br/>__________________________<br/>Authorized Signatory", styles['Normal'])]
+    ]
+    
+    footer_table = Table(bank_and_sign_data, colWidths=[3.5*inch, 3.5*inch])
+    footer_table.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    elements.append(footer_table)
     
     doc.build(elements)
     buffer.seek(0)
