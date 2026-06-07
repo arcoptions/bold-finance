@@ -5,7 +5,16 @@ import plotly.graph_objects as go
 from core.database import fetch_table
 
 def render_dashboard_view():
-    st.markdown("<br>", unsafe_allow_html=True)
+    # --- HEADER & MANUAL SYNC BUTTON ---
+    col_title, col_btn = st.columns([4, 1])
+    with col_title:
+        st.markdown("<br>", unsafe_allow_html=True)
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Sync Live Data", use_container_width=True):
+            st.cache_data.clear() # Clears the Streamlit memory cache
+            st.rerun()            # Refreshes the page immediately
+
     df = fetch_table("Transactions_Master")
 
     if df.empty:
@@ -13,19 +22,35 @@ def render_dashboard_view():
         return
 
     # --- BULLETPROOF DATA CLEANING ---
-    # 1. Force convert financial columns to strings, strip commas and spaces, then force to float.
+    # 1. Force convert financial columns to strings, strip EVERYTHING except digits, decimals, and minus signs
     for col in ['Deposits', 'Withdrawals', 'Running Balance']:
         if col in df.columns:
-            # Handle pandas float/string mix perfectly
-            df[col] = df[col].astype(str).str.replace(',', '', regex=False).str.strip()
+            # The Regex r'[^\d\.-]' targets anything that is NOT a number, dot, or minus sign and deletes it.
+            # This fixes ₹ symbols, $, commas, non-breaking spaces, and random letters.
+            df[col] = df[col].astype(str).str.replace(r'[^\d\.-]', '', regex=True)
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
     
-    # 2. Parse Dates safely and drop rows with bad dates
-    df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
+    # 2. Parse Dates Safely
+    if 'Transaction Date' in df.columns:
+        df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
+    else:
+        st.error("Missing 'Transaction Date' column in Master Ledger.")
+        return
+        
+    # Fallback to 'Value Date' if 'Transaction Date' is accidentally empty in some rows
+    if 'Value Date' in df.columns:
+        df['Value Date'] = pd.to_datetime(df['Value Date'], errors='coerce')
+        df['Transaction Date'] = df['Transaction Date'].fillna(df['Value Date'])
+
+    # Drop rows where we absolutely cannot figure out the date (Junk headers)
     df = df.dropna(subset=['Transaction Date'])
+    if df.empty:
+        st.warning("No valid dates found in the ledger. Please check your Transaction Date formatting.")
+        return
+        
     df['Month'] = df['Transaction Date'].dt.to_period('M').astype(str)
     
-    # Fill empty categories so they don't break the charts
+    # Fill empty categories so Plotly doesn't crash
     if 'Remarks' in df.columns:
         df['Remarks'] = df['Remarks'].replace('', 'Uncategorized').fillna('Uncategorized')
     if 'Person' in df.columns:
@@ -34,21 +59,26 @@ def render_dashboard_view():
     # --- TOP FILTERS ---
     col1, col2 = st.columns(2)
     with col1:
-        entity_filter = st.selectbox("Entity View", ["All", "Socialight", "Bold and Italic"])
+        if 'Entity' in df.columns:
+            entities = ["All"] + list(df['Entity'].dropna().unique())
+        else:
+            entities = ["All"]
+        entity_filter = st.selectbox("Entity View", entities)
+        
     with col2:
         months = sorted(list(df['Month'].unique()), reverse=True)
         month_filter = st.selectbox("Period", ["All Time"] + months)
 
     # Apply Filters to Working Data
     filtered_df = df.copy()
-    if entity_filter != "All":
+    if entity_filter != "All" and 'Entity' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['Entity'] == entity_filter]
     if month_filter != "All Time":
         filtered_df = filtered_df[filtered_df['Month'] == month_filter]
 
     # --- METRICS CALCULATION ---
-    tot_dep = float(filtered_df['Deposits'].sum())
-    tot_wth = float(filtered_df['Withdrawals'].sum())
+    tot_dep = float(filtered_df['Deposits'].sum()) if 'Deposits' in filtered_df.columns else 0.0
+    tot_wth = float(filtered_df['Withdrawals'].sum()) if 'Withdrawals' in filtered_df.columns else 0.0
     net_cf = tot_dep - tot_wth
 
     # --- TRUE CLOSING BALANCE LOGIC ---
@@ -71,14 +101,12 @@ def render_dashboard_view():
 
     st.markdown("---")
 
-    # --- ROW 1: TREND ANALYSIS (RESTORED) ---
+    # --- ROW 1: TREND ANALYSIS ---
     st.subheader("Monthly Revenue vs. Expense Trend")
     if not filtered_df.empty:
-        # Group by month
         monthly_agg = filtered_df.groupby('Month')[['Deposits', 'Withdrawals']].sum().reset_index()
         monthly_agg = monthly_agg.sort_values('Month')
         
-        # Build a robust Grouped Bar Chart using Graph Objects instead of Express
         fig_trend = go.Figure()
         fig_trend.add_trace(go.Bar(
             x=monthly_agg['Month'], y=monthly_agg['Deposits'],
@@ -121,9 +149,8 @@ def render_dashboard_view():
     with c2:
         st.subheader("Top Payees / Vendors")
         if not expenses_df.empty and 'Person' in expenses_df.columns:
-            # Get top 5 payees by amount
             top_vendors = expenses_df.groupby('Person')['Withdrawals'].sum().reset_index().sort_values('Withdrawals', ascending=True).tail(5)
-            # Remove the 'Unknown' generic tag from visualization if it dominates
+            # Filter out the generic "Unknown" bucket if it exists
             top_vendors = top_vendors[top_vendors['Person'] != 'Unknown']
             
             if not top_vendors.empty:
