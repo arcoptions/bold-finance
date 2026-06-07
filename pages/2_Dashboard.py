@@ -20,7 +20,6 @@ else:
     df['Withdrawals'] = pd.to_numeric(df['Withdrawals'], errors='coerce').fillna(0)
     df['Transaction Date'] = pd.to_datetime(df['Transaction Date'], errors='coerce')
     
-    # Global Filters
     col1, col2 = st.columns(2)
     with col1:
         entity_filter = st.selectbox("Entity View", ["All", "Socialight", "Bold and Italic"])
@@ -28,14 +27,12 @@ else:
         df['Month'] = df['Transaction Date'].dt.to_period('M').astype(str)
         month_filter = st.selectbox("Period", ["All Time"] + list(df['Month'].unique()))
 
-    # Apply Filters
     filtered_df = df.copy()
     if entity_filter != "All":
         filtered_df = filtered_df[filtered_df['Entity'] == entity_filter]
     if month_filter != "All Time":
         filtered_df = filtered_df[filtered_df['Month'] == month_filter]
 
-    # Metrics
     tot_dep = filtered_df['Deposits'].sum()
     tot_wth = filtered_df['Withdrawals'].sum()
     net_cf = tot_dep - tot_wth
@@ -47,7 +44,6 @@ else:
 
     st.markdown("---")
     
-    # Visualizations
     c1, c2 = st.columns(2)
     
     with c1:
@@ -62,7 +58,6 @@ else:
 
     with c2:
         st.subheader("Cash Flow Waterfall")
-        # Simplified waterfall: Opening (0), Deposits, Withdrawals, Closing
         fig_waterfall = go.Figure(go.Waterfall(
             orientation="v",
             measure=["absolute", "relative", "relative", "total"],
